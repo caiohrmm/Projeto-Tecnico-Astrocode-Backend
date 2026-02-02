@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = (
-        "postgresql://postgres:postgres@localhost:5432/real_estate_attendance"
+        "fallback_database_url"
     )
 
 
