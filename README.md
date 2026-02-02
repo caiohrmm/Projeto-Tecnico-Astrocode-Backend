@@ -52,9 +52,15 @@ app/
    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
    ```
 
-5. Acesse:
+5. Crie o banco PostgreSQL e ajuste `DATABASE_URL` no `.env`:
+   ```sql
+   CREATE DATABASE real_estate_attendance;
+   ```
+
+6. Acesse:
    - API: http://localhost:8000
    - Healthcheck: http://localhost:8000/health
+   - Database health: http://localhost:8000/health/db
    - Docs: http://localhost:8000/docs
 
 ## Variáveis de ambiente

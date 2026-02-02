@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # Database
+    database_url: str = (
+        "postgresql://postgres:postgres@localhost:5432/real_estate_attendance"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
