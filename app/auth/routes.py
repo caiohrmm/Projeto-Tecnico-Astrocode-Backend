@@ -1,6 +1,6 @@
 """Authentication routes."""
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
@@ -70,7 +70,6 @@ def get_current_user_info(
 # Google OAuth routes
 @router.get("/google/login")
 async def google_login(
-    request: Request,
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     """
@@ -83,12 +82,8 @@ async def google_login(
     """
     oauth_service = OAuthService(db)
 
-    # Get redirect URI from request
-    redirect_uri = str(request.url_for("google_callback"))
-
-    authorization_url, _ = await oauth_service.get_google_authorization_url(
-        redirect_uri=redirect_uri
-    )
+    # Use redirect URI from settings (must match Google Cloud Console exactly)
+    authorization_url, _ = await oauth_service.get_google_authorization_url()
 
     return RedirectResponse(url=authorization_url)
 

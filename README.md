@@ -360,6 +360,91 @@ JWT_EXPIRATION_HOURS=24
 
 **Importante:** Em produção, use uma chave secreta forte e aleatória!
 
+## Google OAuth
+
+O sistema suporta autenticação via Google OAuth2.
+
+### Endpoints OAuth
+
+- `GET /auth/google/login` - Inicia o fluxo OAuth (redireciona para Google)
+- `GET /auth/google/callback` - Processa o callback do Google
+
+### Como Configurar Google OAuth
+
+#### 1. Criar credenciais no Google Cloud Console
+
+1. Acesse: https://console.cloud.google.com/
+2. Crie um projeto ou selecione um existente
+3. Ative a API "Google+ API" ou "Google Identity"
+4. Vá em **Credenciais** → **Criar credenciais** → **ID do cliente OAuth 2.0**
+5. Configure:
+   - **Tipo:** Aplicativo Web
+   - **Nome:** Real Estate Attendance Backend (ou qualquer nome)
+   - **URIs de redirecionamento autorizados:** 
+     ```
+     http://localhost:8000/auth/google/callback
+     ```
+     ⚠️ **IMPORTANTE:** A URI deve ser EXATAMENTE esta (incluindo protocolo, porta e path)
+
+6. Copie o **Client ID** e **Client Secret**
+
+#### 2. Configurar no `.env`
+
+Adicione ao seu arquivo `.env`:
+
+```env
+GOOGLE_CLIENT_ID=seu-client-id-aqui.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=seu-client-secret-aqui
+GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+```
+
+⚠️ **CRÍTICO:** A `GOOGLE_REDIRECT_URI` deve corresponder **EXATAMENTE** à URI configurada no Google Cloud Console, incluindo:
+- Protocolo (`http://` ou `https://`)
+- Domínio completo
+- Porta (se aplicável)
+- Path completo (`/auth/google/callback`)
+- Sem trailing slash
+
+#### 3. Testar OAuth
+
+1. Acesse: `http://localhost:8000/auth/google/login`
+2. Você será redirecionado para o Google
+3. Faça login e autorize o acesso
+4. Você será redirecionado de volta e receberá um token JWT
+
+### Erro: `redirect_uri_mismatch`
+
+Se você receber o erro `{"detail":"OAuth authentication failed: redirect_uri_mismatch: Bad Request"}`, significa que a URI de redirecionamento não corresponde exatamente à configurada no Google Cloud Console.
+
+**Solução:**
+
+1. Verifique a URI no Google Cloud Console:
+   - Vá em **Credenciais** → Seu OAuth 2.0 Client ID
+   - Verifique a seção **URIs de redirecionamento autorizados**
+   - Deve conter exatamente: `http://localhost:8000/auth/google/callback`
+
+2. Verifique a URI no seu `.env`:
+   ```env
+   GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+   ```
+
+3. Certifique-se de que:
+   - Protocolo está correto (`http://` para localhost, `https://` para produção)
+   - Não há trailing slash (`/auth/google/callback` e não `/auth/google/callback/`)
+   - Porta está correta (`8000` se for o padrão)
+   - Path está correto (`/auth/google/callback`)
+
+4. Após alterar no Google Cloud Console, pode levar alguns minutos para propagar
+
+5. Reinicie a aplicação após alterar o `.env`
+
+**Exemplo de URIs válidas:**
+- ✅ `http://localhost:8000/auth/google/callback`
+- ✅ `https://seusite.com/auth/google/callback`
+- ❌ `http://localhost:8000/auth/google/callback/` (trailing slash)
+- ❌ `http://127.0.0.1:8000/auth/google/callback` (IP diferente)
+- ❌ `https://localhost:8000/auth/google/callback` (protocolo diferente)
+
 ## Migrations
 
 O projeto usa Alembic para versionamento do banco de dados.
