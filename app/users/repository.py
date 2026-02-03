@@ -6,7 +6,7 @@ from typing import List
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.users.models import User
+from app.users.models import Role, User
 from app.users.schemas import UserCreate, UserUpdate
 
 
@@ -120,4 +120,86 @@ class UserRepository:
         """
         self.db.delete(user)
         self.db.commit()
+
+    def assign_roles(self, user: User, role_names: List[str]) -> User:
+        """
+        Assign roles to a user by role names.
+
+        Args:
+            user: User instance
+            role_names: List of role names to assign
+
+        Returns:
+            Updated user instance with roles assigned
+        """
+        if not role_names:
+            return user
+
+        stmt = select(Role).where(Role.name.in_(role_names))
+        roles = list(self.db.scalars(stmt).all())
+
+        # Clear existing roles and assign new ones
+        user.roles = roles
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def add_role(self, user: User, role_name: str) -> User:
+        """
+        Add a single role to a user.
+
+        Args:
+            user: User instance
+            role_name: Role name to add
+
+        Returns:
+            Updated user instance
+        """
+        stmt = select(Role).where(Role.name == role_name)
+        role = self.db.scalar(stmt)
+
+        if role and role not in user.roles:
+            user.roles.append(role)
+            self.db.commit()
+            self.db.refresh(user)
+
+        return user
+
+    def remove_role(self, user: User, role_name: str) -> User:
+        """
+        Remove a role from a user.
+
+        Args:
+            user: User instance
+            role_name: Role name to remove
+
+        Returns:
+            Updated user instance
+        """
+        stmt = select(Role).where(Role.name == role_name)
+        role = self.db.scalar(stmt)
+
+        if role and role in user.roles:
+            user.roles.remove(role)
+            self.db.commit()
+            self.db.refresh(user)
+
+        return user
+
+    def get_with_roles(self, user_id: uuid.UUID) -> User | None:
+        """
+        Get user by ID with roles eagerly loaded.
+
+        Args:
+            user_id: User UUID
+
+        Returns:
+            User instance with roles loaded or None if not found
+        """
+        stmt = select(User).where(User.id == user_id)
+        user = self.db.scalar(stmt)
+        if user:
+            # Force eager load of roles
+            _ = user.roles
+        return user
 

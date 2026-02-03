@@ -3,11 +3,20 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Table
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+
+# Association table for many-to-many relationship between User and Role
+user_roles = Table(
+    "user_roles",
+    Base.metadata,
+    mapped_column("user_id", UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True),
+    mapped_column("role_id", UUID(as_uuid=True), ForeignKey("roles.id"), primary_key=True),
+)
 
 
 class User(Base):
@@ -22,6 +31,7 @@ class User(Base):
         is_active: Whether the user account is active
         created_at: Timestamp when the user was created
         updated_at: Timestamp when the user was last updated
+        roles: Associated roles (many-to-many relationship)
     """
 
     __tablename__ = "users"
@@ -63,7 +73,70 @@ class User(Base):
         nullable=False,
     )
 
+    # Relationship to roles (many-to-many)
+    roles: Mapped[list["Role"]] = relationship(
+        "Role",
+        secondary=user_roles,
+        back_populates="users",
+        lazy="selectin",  # Eager load roles when user is loaded
+    )
+
     def __repr__(self) -> str:
         """String representation of the User."""
         return f"<User(id={self.id}, email={self.email}, full_name={self.full_name})>"
 
+
+class Role(Base):
+    """
+    Role model for role-based access control.
+
+    Attributes:
+        id: Unique identifier (UUID)
+        name: Role name (unique, e.g., atendente, corretor, gestor)
+        description: Optional role description
+        created_at: Timestamp when the role was created
+        updated_at: Timestamp when the role was last updated
+        users: Associated users (many-to-many relationship)
+    """
+
+    __tablename__ = "roles"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(
+        String(100),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    description: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    # Relationship to users (many-to-many)
+    users: Mapped[list["User"]] = relationship(
+        "User",
+        secondary=user_roles,
+        back_populates="roles",
+        lazy="selectin",
+    )
+
+    def __repr__(self) -> str:
+        """String representation of the Role."""
+        return f"<Role(id={self.id}, name={self.name})>"
