@@ -194,3 +194,4 @@ def delete_client(
         )
     repository.delete(client)
 
+

@@ -27,17 +27,20 @@ class ClientRepository:
         Create a new client.
 
         Args:
-            client_data: Client creation data
+            client_data: Client creation data (only name, phone, email, lead_source required)
 
         Returns:
             Created client instance
         """
-        db_client = Client(
-            name=client_data.name,
-            phone=client_data.phone,
-            email=client_data.email,
-            lead_source=client_data.lead_source,
-        )
+        # Extract all fields from client_data, including optional ones
+        client_dict = client_data.model_dump(exclude_unset=False)
+        
+        # Set default status if not provided
+        from app.clients.models import ClientStatus
+        if "current_status" not in client_dict or client_dict["current_status"] is None:
+            client_dict["current_status"] = ClientStatus.NEW_LEAD
+        
+        db_client = Client(**client_dict)
         self.db.add(db_client)
         self.db.commit()
         self.db.refresh(db_client)
@@ -123,4 +126,5 @@ class ClientRepository:
         """
         self.db.delete(client)
         self.db.commit()
+
 
