@@ -31,42 +31,199 @@ app/
 
 ## Como rodar localmente
 
-1. Crie um ambiente virtual:
+### Pré-requisitos
+
+- Python 3.11 ou superior
+- PostgreSQL instalado e rodando
+- Git (para clonar o repositório)
+
+### Passo a passo
+
+#### 1. Clone o repositório (se ainda não tiver)
+
+```bash
+git clone <url-do-repositorio>
+cd Projeto-Tecnico-Astrocode-Backend
+```
+
+#### 2. Crie e ative um ambiente virtual
+
+**Windows:**
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+**Linux/Mac:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+**Verificação:** Você deve ver `(.venv)` no início do prompt do terminal.
+
+#### 3. Instale as dependências
+
+```bash
+pip install --upgrade pip
+pip install -e .
+```
+
+**Importante:** Se você encontrar erros relacionados a `email-validator`, execute:
+```bash
+pip install email-validator
+```
+
+#### 4. Configure as variáveis de ambiente
+
+Crie um arquivo `.env` na raiz do projeto:
+
+**Windows:**
+```bash
+copy .env.example .env
+```
+
+**Linux/Mac:**
+```bash
+cp .env.example .env
+```
+
+Edite o arquivo `.env` e configure pelo menos:
+
+```env
+# Database
+DATABASE_URL=postgresql://usuario:senha@localhost:5432/real_estate_attendance
+
+# JWT Authentication
+JWT_SECRET_KEY=your-secret-key-change-in-production-use-long-random-string
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_HOURS=24
+
+# Google OAuth (opcional para começar)
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+```
+
+#### 5. Configure o banco de dados PostgreSQL
+
+1. Acesse o PostgreSQL (via psql ou pgAdmin)
+2. Crie o banco de dados:
+
+```sql
+CREATE DATABASE real_estate_attendance;
+```
+
+3. Verifique se o usuário tem permissões:
+
+```sql
+GRANT ALL PRIVILEGES ON DATABASE real_estate_attendance TO seu_usuario;
+```
+
+#### 6. Aplique as migrations
+
+```bash
+alembic upgrade head
+```
+
+**Verificação:** Você deve ver mensagens de sucesso para cada migration aplicada.
+
+#### 7. Inicie o servidor
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Verificação:** Você deve ver algo como:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process
+INFO:     Started server process
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+```
+
+#### 8. Teste se está funcionando
+
+Abra seu navegador e acesse:
+
+- **API Base:** http://localhost:8000
+- **Healthcheck:** http://localhost:8000/health
+- **Database Health:** http://localhost:8000/health/db
+- **Documentação Swagger:** http://localhost:8000/docs
+- **Documentação ReDoc:** http://localhost:8000/redoc
+
+**Teste rápido via terminal:**
+
+```bash
+# Healthcheck básico
+curl http://localhost:8000/health
+
+# Deve retornar: {"status":"ok"}
+```
+
+### Solução de problemas comuns
+
+#### Erro: `ModuleNotFoundError: No module named 'email_validator'`
+
+**Solução:**
+```bash
+pip install email-validator
+```
+
+Ou reinstale todas as dependências:
+```bash
+pip install -e . --force-reinstall
+```
+
+#### Erro: `sqlalchemy.exc.OperationalError: could not connect to server`
+
+**Solução:**
+1. Verifique se o PostgreSQL está rodando
+2. Verifique se a `DATABASE_URL` no `.env` está correta
+3. Teste a conexão manualmente:
    ```bash
-   python -m venv .venv
-   .venv\Scripts\activate  # Windows
+   psql -U seu_usuario -d real_estate_attendance
    ```
 
-2. Instale as dependências:
+#### Erro: `alembic.util.exc.CommandError: Target database is not up to date`
+
+**Solução:**
+```bash
+# Verifique o status atual
+alembic current
+
+# Aplique todas as migrations pendentes
+alembic upgrade head
+```
+
+#### Erro: `ImportError: cannot import name 'X' from 'app.Y'`
+
+**Solução:**
+1. Verifique se todas as dependências estão instaladas:
    ```bash
-   pip install -e .
+   pip install -e . --force-reinstall
    ```
+2. Verifique se o ambiente virtual está ativado
+3. Reinicie o servidor
 
-3. Copie o arquivo de exemplo e ajuste se necessário:
-   ```bash
-   copy .env.example .env
-   ```
+#### Porta 8000 já está em uso
 
-4. Inicie o servidor:
-   ```bash
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
+**Solução:**
+Use outra porta:
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+```
 
-5. Crie o banco PostgreSQL e ajuste `DATABASE_URL` no `.env`:
-   ```sql
-   CREATE DATABASE real_estate_attendance;
-   ```
+Ou encontre e encerre o processo usando a porta 8000:
+```bash
+# Windows
+netstat -ano | findstr :8000
+taskkill /PID <PID> /F
 
-6. Aplique as migrations:
-   ```bash
-   alembic upgrade head
-   ```
-
-7. Acesse:
-   - API: http://localhost:8000
-   - Healthcheck: http://localhost:8000/health
-   - Database health: http://localhost:8000/health/db
-   - Docs: http://localhost:8000/docs
+# Linux/Mac
+lsof -ti:8000 | xargs kill
+```
 
 ## Autenticação
 
