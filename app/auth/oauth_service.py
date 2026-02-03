@@ -64,8 +64,9 @@ class OAuthService:
         """
         client = self.get_google_oauth_client(redirect_uri)
 
-        authorization_url, state = await client.authorize_redirect(
-            "https://accounts.google.com/o/oauth2/v2/auth",
+        # Create authorization URL - authlib will generate state automatically
+        authorization_url, state = client.create_authorization_url(
+            url="https://accounts.google.com/o/oauth2/v2/auth",
             scope="openid email profile",
         )
 
