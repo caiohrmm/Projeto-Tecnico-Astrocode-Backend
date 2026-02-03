@@ -41,3 +41,21 @@ class TokenData(BaseModel):
     user_id: str | None = None
     email: str | None = None
 
+
+# OAuth schemas
+class OAuthProviderInfo(BaseModel):
+    """
+    Schema for OAuth provider information.
+
+    Attributes:
+        provider: Provider name (e.g., 'google')
+        provider_user_id: User ID from the provider
+        email: Email from the provider
+        name: Full name from the provider
+    """
+
+    provider: str
+    provider_user_id: str
+    email: str
+    name: str
+

@@ -16,24 +16,29 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Application
+    # Application controlled by .env file
     app_name: str = "Real Estate Attendance Backend"
     environment: Literal["development", "staging", "production"] = "development"
     debug: bool = False
 
-    # Server
+    # Server controlled by .env file
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Database
+    # Database controlled by .env file
     database_url: str = (
         "fallback_database_url"
     )
 
-    # JWT Authentication
+    # JWT Authentication controlled by .env file
     jwt_secret_key: str = "fallback_jwt_secret_key"
     jwt_algorithm: str = "HS256"
     jwt_expiration_hours: int = 24
+
+    # Google OAuth controlled by .env file
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:8000/auth/google/callback"
 
 
 @lru_cache

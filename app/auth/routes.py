@@ -1,10 +1,12 @@
 """Authentication routes."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_active_user
+from app.auth.oauth_service import OAuthService
 from app.auth.schemas import LoginRequest, TokenResponse
 from app.auth.service import AuthService
 from app.db import get_db
@@ -63,4 +65,51 @@ def get_current_user_info(
         Current user information
     """
     return UserResponse.model_validate(current_user)
+
+
+# Google OAuth routes
+@router.get("/google/login")
+async def google_login(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """
+    Initiate Google OAuth login flow.
+
+    Redirects user to Google authorization page.
+
+    Returns:
+        Redirect response to Google OAuth authorization URL
+    """
+    oauth_service = OAuthService(db)
+
+    # Get redirect URI from request
+    redirect_uri = str(request.url_for("google_callback"))
+
+    authorization_url, _ = await oauth_service.get_google_authorization_url(
+        redirect_uri=redirect_uri
+    )
+
+    return RedirectResponse(url=authorization_url)
+
+
+@router.get("/google/callback")
+async def google_callback(
+    code: str,
+    state: str | None = None,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    """
+    Handle Google OAuth callback.
+
+    Args:
+        code: Authorization code from Google
+        state: State parameter for CSRF protection
+        db: Database session
+
+    Returns:
+        JWT access token response
+    """
+    oauth_service = OAuthService(db)
+    return await oauth_service.handle_google_callback(code=code, state=state)
 

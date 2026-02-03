@@ -81,6 +81,14 @@ class User(Base):
         lazy="selectin",  # Eager load roles when user is loaded
     )
 
+    # Relationship to auth providers (OAuth)
+    auth_providers: Mapped[list["AuthProvider"]] = relationship(
+        "AuthProvider",
+        back_populates="user",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+
     def __repr__(self) -> str:
         """String representation of the User."""
         return f"<User(id={self.id}, email={self.email}, full_name={self.full_name})>"
