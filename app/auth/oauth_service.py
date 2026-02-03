@@ -198,7 +198,8 @@ class OAuthService:
         # Create new user
         # Note: For OAuth users, we use a placeholder password
         # They can only login via OAuth
-        placeholder_password = hash_password("oauth_user_no_password_placeholder")
+        # Password must be <= 72 bytes for bcrypt
+        placeholder_password = hash_password("oauth_placeholder")
 
         user_data = UserCreate(
             email=provider_info.email,
