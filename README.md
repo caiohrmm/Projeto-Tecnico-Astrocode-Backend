@@ -207,6 +207,18 @@ alembic upgrade head
 2. Verifique se o ambiente virtual está ativado
 3. Reinicie o servidor
 
+#### Aviso: `(trapped) error reading bcrypt version` ou `AttributeError: module 'bcrypt' has no attribute '__about__'`
+
+**Explicação:**
+Este é um aviso de compatibilidade entre `passlib` e versões mais recentes do `bcrypt`. O código funciona corretamente, mas o passlib tenta ler a versão do bcrypt de uma forma que não está disponível nas versões mais novas.
+
+**Status:**
+✅ **O warning foi suprimido no logging** - você não verá mais esse aviso nos logs
+✅ **Hash e verificação de senhas funcionam normalmente**
+✅ **OAuth Google está funcionando corretamente**
+
+**Nota:** O aviso não impede o funcionamento. Se ainda aparecer, é apenas informativo e pode ser ignorado.
+
 #### Porta 8000 já está em uso
 
 **Solução:**

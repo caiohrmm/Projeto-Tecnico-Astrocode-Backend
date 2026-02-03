@@ -3,6 +3,7 @@
 from passlib.context import CryptContext
 
 # Create password context with bcrypt
+# Note: There may be a warning about bcrypt version detection, but it doesn't affect functionality
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 

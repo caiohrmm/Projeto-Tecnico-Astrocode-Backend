@@ -27,6 +27,8 @@ def setup_logging() -> None:
 
     # Reduce noise from third-party libraries
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    # Suppress passlib bcrypt version warning (compatibility issue, but works fine)
+    logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
 
 
 def get_logger(name: str) -> logging.Logger:
