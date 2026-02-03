@@ -30,6 +30,11 @@ class Settings(BaseSettings):
         "fallback_database_url"
     )
 
+    # JWT Authentication
+    jwt_secret_key: str = "fallback_jwt_secret_key"
+    jwt_algorithm: str = "HS256"
+    jwt_expiration_hours: int = 24
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_active_user
 from app.db import get_db
+from app.users.models import User
 
 router = APIRouter(tags=["health"])
 
@@ -30,3 +32,23 @@ def healthcheck_db(db: Session = Depends(get_db)) -> dict[str, str]:
     """
     db.execute(text("SELECT 1"))
     return {"status": "ok", "database": "connected"}
+
+
+@router.get("/health/protected")
+def healthcheck_protected(
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, str]:
+    """
+    Protected health check - requires authentication.
+
+    This endpoint demonstrates route protection using JWT authentication.
+
+    Returns:
+        Status indicator with user information.
+    """
+    return {
+        "status": "ok",
+        "message": "This is a protected endpoint",
+        "user_id": str(current_user.id),
+        "user_email": current_user.email,
+    }

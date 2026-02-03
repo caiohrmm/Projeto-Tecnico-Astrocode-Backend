@@ -68,6 +68,141 @@ app/
    - Database health: http://localhost:8000/health/db
    - Docs: http://localhost:8000/docs
 
+## Autenticação
+
+O sistema usa JWT (JSON Web Tokens) para autenticação.
+
+### Endpoints de Autenticação
+
+- `POST /auth/login` - Login com email e senha
+- `GET /auth/me` - Obter informações do usuário autenticado
+
+### Como Testar a Autenticação
+
+#### 1. Criar um usuário de teste
+
+**Opção A: Via script (recomendado)**
+
+```bash
+python scripts/create_test_user.py
+```
+
+Ou com parâmetros customizados:
+
+```bash
+python scripts/create_test_user.py --email "admin@example.com" --password "minhasenha123" --name "Admin User"
+```
+
+**Opção B: Via Python interativo**
+
+```python
+from app.db import SessionLocal
+from app.users.repository import UserRepository
+from app.users.schemas import UserCreate
+from app.auth.password import hash_password
+
+db = SessionLocal()
+user_repo = UserRepository(db)
+
+user_data = UserCreate(
+    email="test@example.com",
+    password="senha123456",
+    full_name="Usuário Teste"
+)
+
+hashed = hash_password(user_data.password)
+user = user_repo.create(user_data, hashed)
+print(f"Usuário criado: {user.email}")
+```
+
+#### 2. Fazer login
+
+**Via Swagger UI (http://localhost:8000/docs):**
+
+1. Acesse `/docs`
+2. Encontre o endpoint `POST /auth/login`
+3. Clique em "Try it out"
+4. Preencha:
+   ```json
+   {
+     "email": "test@example.com",
+     "password": "senha123456"
+   }
+   ```
+5. Clique em "Execute"
+6. Copie o `access_token` retornado
+
+**Via cURL:**
+
+```bash
+curl -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "test@example.com",
+    "password": "senha123456"
+  }'
+```
+
+**Resposta esperada:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer"
+}
+```
+
+#### 3. Usar o token para acessar rotas protegidas
+
+**Via Swagger UI:**
+
+1. Clique no botão "Authorize" no topo da página
+2. Cole o token no campo "Value" (sem a palavra "Bearer")
+3. Clique em "Authorize"
+4. Agora você pode testar endpoints protegidos como `GET /auth/me` ou `GET /health/protected`
+
+**Via cURL:**
+
+```bash
+# Obter informações do usuário autenticado
+curl -X GET "http://localhost:8000/auth/me" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI"
+
+# Testar endpoint protegido
+curl -X GET "http://localhost:8000/health/protected" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI"
+```
+
+#### 4. Testar proteção de rotas
+
+**Sem token (deve retornar 401):**
+```bash
+curl -X GET "http://localhost:8000/health/protected"
+```
+
+**Com token inválido (deve retornar 401):**
+```bash
+curl -X GET "http://localhost:8000/health/protected" \
+  -H "Authorization: Bearer token_invalido"
+```
+
+**Com token válido (deve retornar 200):**
+```bash
+curl -X GET "http://localhost:8000/health/protected" \
+  -H "Authorization: Bearer SEU_TOKEN_VALIDO"
+```
+
+### Variáveis de Ambiente para JWT
+
+Adicione ao seu `.env`:
+
+```env
+JWT_SECRET_KEY=your-secret-key-change-in-production-use-long-random-string
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_HOURS=24
+```
+
+**Importante:** Em produção, use uma chave secreta forte e aleatória!
+
 ## Migrations
 
 O projeto usa Alembic para versionamento do banco de dados.
