@@ -37,7 +37,7 @@ def create_test_user(
         # Check if user already exists
         existing_user = user_repo.get_by_email(email)
         if existing_user:
-            print(f"❌ Usuário com email '{email}' já existe!")
+            print(f"[ERRO] Usuario com email '{email}' ja existe!")
             print(f"   ID: {existing_user.id}")
             return
 
@@ -51,16 +51,16 @@ def create_test_user(
         hashed = hash_password(user_data.password)
         user = user_repo.create(user_data, hashed)
 
-        print("✅ Usuário criado com sucesso!")
+        print("[OK] Usuario criado com sucesso!")
         print(f"   ID: {user.id}")
         print(f"   Email: {user.email}")
         print(f"   Nome: {user.full_name}")
-        print(f"\n📝 Credenciais para login:")
+        print(f"\nCredenciais para login:")
         print(f"   Email: {email}")
         print(f"   Senha: {password}")
 
     except Exception as e:
-        print(f"❌ Erro ao criar usuário: {e}")
+        print(f"[ERRO] Erro ao criar usuario: {e}")
         db.rollback()
     finally:
         db.close()

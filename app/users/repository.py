@@ -61,11 +61,13 @@ class UserRepository:
         Get user by email.
 
         Args:
-            email: User email address
+            email: User email address (will be normalized to lowercase)
 
         Returns:
             User instance or None if not found
         """
+        # Normalize email to lowercase for case-insensitive lookup
+        email = email.lower().strip()
         stmt = select(User).where(User.email == email)
         return self.db.scalar(stmt)
 

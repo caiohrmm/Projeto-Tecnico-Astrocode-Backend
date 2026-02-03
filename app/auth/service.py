@@ -36,6 +36,10 @@ class AuthService:
         Raises:
             HTTPException: If credentials are invalid or user is inactive
         """
+        # Normalize email (lowercase and strip whitespace)
+        email = email.lower().strip()
+        password = password.strip()
+
         # Get user by email
         user = self.user_repo.get_by_email(email)
 
