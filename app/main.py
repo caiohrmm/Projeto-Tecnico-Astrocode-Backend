@@ -9,6 +9,7 @@ from app.auth.routes import router as auth_router
 from app.clients.routes import router as clients_router
 from app.config.settings import get_settings
 from app.core.logging import get_logger, setup_logging
+from app.users.routes import router as users_router
 
 logger = get_logger(__name__)
 
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth_router)
     app.include_router(clients_router)
+    app.include_router(users_router)
 
     return app
 

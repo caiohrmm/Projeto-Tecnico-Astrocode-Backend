@@ -99,3 +99,33 @@ def get_current_active_user(
     """
     return current_user
 
+
+def get_current_manager(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """
+    Get the current user and verify they have the 'gestor' role.
+
+    Only users with the 'gestor' role can perform administrative actions
+    like creating users and managing roles.
+
+    Args:
+        current_user: Current authenticated user
+
+    Returns:
+        Current user with gestor role
+
+    Raises:
+        HTTPException: If user doesn't have 'gestor' role
+    """
+    # Check if user has 'gestor' role
+    role_names = [role.name for role in current_user.roles]
+    
+    if "gestor" not in role_names:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers (gestor) can perform this action",
+        )
+    
+    return current_user
+

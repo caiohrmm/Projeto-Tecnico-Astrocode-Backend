@@ -209,6 +209,16 @@ class OAuthService:
 
         user = self.user_repo.create(user_data, placeholder_password)
 
+        # Assign default role 'atendente' to OAuth users
+        # Manager can change this later via role management endpoint
+        from app.users.role_repository import RoleRepository
+        role_repo = RoleRepository(self.db)
+        atendente_role = role_repo.get_by_name("atendente")
+        
+        if atendente_role:
+            user.roles = [atendente_role]
+            self.db.commit()
+
         # Link OAuth provider
         auth_provider = AuthProvider(
             user_id=user.id,
