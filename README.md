@@ -57,11 +57,47 @@ app/
    CREATE DATABASE real_estate_attendance;
    ```
 
-6. Acesse:
+6. Aplique as migrations:
+   ```bash
+   alembic upgrade head
+   ```
+
+7. Acesse:
    - API: http://localhost:8000
    - Healthcheck: http://localhost:8000/health
    - Database health: http://localhost:8000/health/db
    - Docs: http://localhost:8000/docs
+
+## Migrations
+
+O projeto usa Alembic para versionamento do banco de dados.
+
+### Comandos úteis
+
+- **Criar nova migration:**
+  ```bash
+  alembic revision --autogenerate -m "Description"
+  ```
+
+- **Aplicar migrations:**
+  ```bash
+  alembic upgrade head
+  ```
+
+- **Reverter última migration:**
+  ```bash
+  alembic downgrade -1
+  ```
+
+- **Ver histórico:**
+  ```bash
+  alembic history
+  ```
+
+- **Ver status atual:**
+  ```bash
+  alembic current
+  ```
 
 ## Variáveis de ambiente
 
