@@ -97,10 +97,18 @@ class OAuthService:
                 code=code,
             )
 
-            # Get user info from Google
+            # Get access token from response
+            access_token = token_response.get("access_token")
+            if not access_token:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to obtain access token from Google",
+                )
+
+            # Get user info from Google using the access token
             user_info = await client.get(
                 "https://www.googleapis.com/oauth2/v2/userinfo",
-                token=token_response,
+                headers={"Authorization": f"Bearer {access_token}"},
             )
             user_info.raise_for_status()
             google_data: dict[str, Any] = user_info.json()
