@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Table
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,8 +14,8 @@ from app.db.base import Base
 user_roles = Table(
     "user_roles",
     Base.metadata,
-    mapped_column("user_id", UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True),
-    mapped_column("role_id", UUID(as_uuid=True), ForeignKey("roles.id"), primary_key=True),
+    Column("user_id", UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True),
+    Column("role_id", UUID(as_uuid=True), ForeignKey("roles.id"), primary_key=True),
 )
 
 
