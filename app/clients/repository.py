@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.models import Client, LeadSource
 from app.clients.schemas import ClientCreate, ClientUpdate
+from app.clients.score_service import LeadScoreService
 
 
 class ClientRepository:
@@ -40,8 +41,17 @@ class ClientRepository:
         if "current_status" not in client_dict or client_dict["current_status"] is None:
             client_dict["current_status"] = ClientStatus.NEW_LEAD
         
+        # Remove manual lead_score if provided (will be calculated automatically)
+        if "current_lead_score" in client_dict:
+            client_dict.pop("current_lead_score")
+        
         db_client = Client(**client_dict)
         self.db.add(db_client)
+        self.db.flush()  # Flush to get the client ID
+        
+        # Calculate and set lead score automatically
+        db_client.current_lead_score = LeadScoreService.calculate_lead_score(db_client)
+        
         self.db.commit()
         self.db.refresh(db_client)
         return db_client
@@ -111,8 +121,17 @@ class ClientRepository:
             Updated client instance
         """
         update_data = client_data.model_dump(exclude_unset=True)
+        
+        # Remove manual lead_score if provided (will be recalculated automatically)
+        if "current_lead_score" in update_data:
+            update_data.pop("current_lead_score")
+        
         for field, value in update_data.items():
             setattr(client, field, value)
+        
+        # Recalculate lead score after update
+        client.current_lead_score = LeadScoreService.calculate_lead_score(client)
+        
         self.db.commit()
         self.db.refresh(client)
         return client
