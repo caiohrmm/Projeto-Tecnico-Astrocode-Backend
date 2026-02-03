@@ -5,8 +5,13 @@ from logging.config import fileConfig
 from sqlalchemy import create_engine
 from alembic import context
 
-# Import Base from the application
+# Import Base directly to avoid importing session which creates engine
 from app.db.base import Base
+
+# Import all models to ensure they are registered with Base.metadata
+# This must be done before target_metadata is set
+# Import models after Base to avoid circular imports
+import app.users.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
