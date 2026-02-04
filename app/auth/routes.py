@@ -138,9 +138,9 @@ async def google_callback(
     code: str,
     state: str | None = None,
     db: Session = Depends(get_db),
-) -> TokenResponse:
+) -> RedirectResponse:
     """
-    Handle Google OAuth callback.
+    Handle Google OAuth callback and redirect to frontend with token.
 
     Args:
         code: Authorization code from Google
@@ -148,8 +148,26 @@ async def google_callback(
         db: Database session
 
     Returns:
-        JWT access token response
+        Redirect response to frontend with token in URL fragment
     """
+    from app.config.settings import get_settings
+    
+    settings = get_settings()
     oauth_service = OAuthService(db)
-    return await oauth_service.handle_google_callback(code=code, state=state)
+    
+    try:
+        # Process OAuth callback and get token
+        token_response = await oauth_service.handle_google_callback(code=code, state=state)
+        
+        # Redirect to frontend with token in URL fragment
+        # Using fragment (#) instead of query param for security (not sent to server)
+        frontend_callback_url = f"{settings.frontend_url}/auth/google/callback#token={token_response.access_token}"
+        
+        return RedirectResponse(url=frontend_callback_url)
+    except Exception as e:
+        # Redirect to frontend with error
+        from fastapi import HTTPException
+        error_message = str(e) if isinstance(e, HTTPException) else "OAuth authentication failed"
+        frontend_error_url = f"{settings.frontend_url}/auth/google/callback?error={error_message}"
+        return RedirectResponse(url=frontend_error_url)
 

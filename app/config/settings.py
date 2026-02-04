@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/auth/google/callback"
+    
+    # Frontend URL for OAuth redirects
+    frontend_url: str = "http://localhost:5173"
 
 
 @lru_cache
