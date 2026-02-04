@@ -10,9 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.attendances.models import Attendance, AttendanceChannel, AttendanceStatus
 from app.attendances.schemas import AttendanceCreate, AttendanceUpdate
+from app.ai.models import AISummary
+from app.ai.repository import AISummaryRepository
+from app.ai.schemas import AISummaryCreate
+from app.ai.service import AISummaryService
 from app.clients.models import Client
 from app.clients.repository import ClientRepository
 from app.clients.score_service import LeadScoreService
+from app.clients.schemas import ClientUpdate
 from app.visits.models import Visit, VisitStatus
 from app.visits.repository import VisitRepository
 
@@ -77,6 +82,9 @@ class AttendanceRepository:
         self.db.add(db_attendance)
         self.db.flush()  # Flush to get the attendance ID
 
+        # Generate AI summary automatically
+        self._generate_ai_summary(db_attendance)
+
         # Update client status if provided
         if attendance_data.updated_client_status:
             self._update_client_from_attendance(db_attendance, attendance_data.updated_client_status)
@@ -117,6 +125,86 @@ class AttendanceRepository:
             update_data["current_interest_type"] = client_status_update.current_interest_type
         if client_status_update.current_property_type:
             update_data["current_property_type"] = client_status_update.current_property_type
+
+        if update_data:
+            client_update = ClientUpdate(**update_data)
+            client_repo.update(client, client_update)
+
+    def _generate_ai_summary(self, attendance: Attendance) -> None:
+        """
+        Generate and save AI summary for attendance.
+
+        Args:
+            attendance: Attendance instance
+        """
+        try:
+            # Generate AI summary using AI service
+            ai_data = AISummaryService.generate_summary(attendance)
+
+            # Create AI summary record
+            summary_data = AISummaryCreate(
+                attendance_id=attendance.id,
+                client_id=attendance.client_id,
+                **ai_data,
+            )
+
+            ai_repo = AISummaryRepository(self.db)
+            ai_summary = ai_repo.create(summary_data)
+
+            # Update client with AI-detected information if summary is completed
+            if ai_summary.status.value == "COMPLETED":
+                self._update_client_from_ai_summary(attendance.client_id, ai_summary)
+
+        except Exception as e:
+            # Log error but don't fail attendance creation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error generating AI summary for attendance {attendance.id}: {e}")
+
+    def _update_client_from_ai_summary(self, client_id: uuid.UUID, ai_summary: AISummary) -> None:
+        """
+        Update client with information detected by AI summary.
+
+        Args:
+            client_id: Client UUID
+            ai_summary: AI summary instance
+        """
+        from app.clients.schemas import ClientUpdate
+
+        client_repo = ClientRepository(self.db)
+        client = client_repo.get_by_id(client_id)
+
+        if not client:
+            return
+
+        # Prepare update data from AI summary
+        update_data = {}
+
+        # Update interest type if detected
+        if ai_summary.interest_type_detected:
+            update_data["current_interest_type"] = ai_summary.interest_type_detected
+
+        # Update budget if detected
+        if ai_summary.budget_min_detected:
+            update_data["current_budget_min"] = ai_summary.budget_min_detected
+        if ai_summary.budget_max_detected:
+            update_data["current_budget_max"] = ai_summary.budget_max_detected
+
+        # Update urgency level if detected
+        if ai_summary.urgency_level_detected:
+            update_data["current_urgency_level"] = ai_summary.urgency_level_detected
+
+        # Update lead score if suggested (use AI suggestion if higher than current)
+        if ai_summary.lead_score_suggested is not None:
+            current_score = client.current_lead_score or 0
+            if ai_summary.lead_score_suggested > current_score:
+                # AI suggestion will be recalculated by LeadScoreService, but we can use it as reference
+                # The actual score will be recalculated based on all factors
+                pass  # Lead score is recalculated automatically in ClientRepository.update
+
+        # Update last_contact_at
+        from datetime import datetime
+        update_data["last_contact_at"] = datetime.utcnow()
 
         if update_data:
             client_update = ClientUpdate(**update_data)
