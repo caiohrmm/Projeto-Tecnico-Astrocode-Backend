@@ -13,6 +13,7 @@ from app.db.base import Base
 # Import models after Base to avoid circular imports
 import app.users.models  # noqa: F401
 import app.auth.models  # noqa: F401
+import app.ai.models  # noqa: F401
 import app.attendances.models  # noqa: F401
 import app.clients.models  # noqa: F401
 import app.properties.models  # noqa: F401
