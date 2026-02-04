@@ -11,7 +11,7 @@ from app.db import get_db
 from app.users.models import User
 from app.users.repository import UserRepository
 from app.users.role_repository import RoleRepository
-from app.users.schemas import UserResponse
+from app.users.schemas import UserResponse, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -141,4 +141,58 @@ def get_user(
             detail="User not found",
         )
     return UserResponse.model_validate(user)
+
+
+@router.put(
+    "/{user_id}",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+)
+def update_user(
+    user_id: uuid.UUID,
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_manager: User = Depends(get_current_manager),
+) -> UserResponse:
+    """
+    Update user information (only managers can perform this action).
+
+    This endpoint allows managers to update user information including:
+    - Email
+    - Full name
+    - Active status (is_active)
+
+    Args:
+        user_id: UUID of the user to update
+        user_data: User update data (all fields optional)
+        db: Database session
+        current_manager: Current authenticated manager (gestor role required)
+
+    Returns:
+        Updated user information
+
+    Raises:
+        HTTPException: If user not found or current user is not a manager
+    """
+    user_repo = UserRepository(db)
+
+    # Get user to update
+    user = user_repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    # Prevent manager from deactivating themselves
+    if user_data.is_active is False and user.id == current_manager.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot deactivate your own account",
+        )
+
+    # Update user
+    updated_user = user_repo.update(user, user_data)
+
+    return UserResponse.model_validate(updated_user)
 
