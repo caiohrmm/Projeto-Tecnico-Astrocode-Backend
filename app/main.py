@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.routes import health
+from app.attendances.routes import router as attendances_router
 from app.auth.routes import router as auth_router
 from app.clients.routes import router as clients_router
 from app.config.settings import get_settings
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(auth_router)
+    app.include_router(attendances_router)
     app.include_router(clients_router)
     app.include_router(properties_router)
     app.include_router(visits_router)
