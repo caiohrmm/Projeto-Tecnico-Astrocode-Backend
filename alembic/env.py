@@ -15,6 +15,7 @@ import app.users.models  # noqa: F401
 import app.auth.models  # noqa: F401
 import app.clients.models  # noqa: F401
 import app.properties.models  # noqa: F401
+import app.visits.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
