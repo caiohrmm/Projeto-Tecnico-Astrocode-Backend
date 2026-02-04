@@ -11,6 +11,7 @@ from app.config.settings import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.properties.routes import router as properties_router
 from app.users.routes import router as users_router
+from app.visits.routes import router as visits_router
 
 logger = get_logger(__name__)
 
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(clients_router)
     app.include_router(properties_router)
+    app.include_router(visits_router)
     app.include_router(users_router)
 
     return app
