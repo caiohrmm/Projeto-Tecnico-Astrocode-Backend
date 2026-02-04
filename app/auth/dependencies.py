@@ -129,3 +129,33 @@ def get_current_manager(
     
     return current_user
 
+
+def get_current_agent_or_manager(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """
+    Get the current user and verify they have 'corretor' or 'gestor' role.
+
+    Only users with 'corretor' or 'gestor' roles can perform certain actions
+    like deleting properties.
+
+    Args:
+        current_user: Current authenticated user
+
+    Returns:
+        Current user with corretor or gestor role
+
+    Raises:
+        HTTPException: If user doesn't have 'corretor' or 'gestor' role
+    """
+    # Check if user has 'corretor' or 'gestor' role
+    role_names = [role.name for role in current_user.roles]
+    
+    if "corretor" not in role_names and "gestor" not in role_names:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only agents (corretor) or managers (gestor) can perform this action. Attendees (atendente) cannot delete properties.",
+        )
+    
+    return current_user
+

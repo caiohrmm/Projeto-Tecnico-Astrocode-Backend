@@ -6,7 +6,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_active_user
+from app.auth.dependencies import get_current_active_user, get_current_agent_or_manager
 from app.db import get_db
 from app.properties.models import BusinessType, Property, PropertyStatus, PropertyType
 from app.properties.repository import PropertyRepository
@@ -207,18 +207,21 @@ def update_property(
 def delete_property(
     property_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_agent_or_manager),
 ) -> None:
     """
     Delete a property.
 
+    Only users with 'corretor' or 'gestor' roles can delete properties.
+    Attendees (atendente) cannot delete properties.
+
     Args:
         property_id: Property UUID
         db: Database session
-        current_user: Current authenticated user
+        current_user: Current authenticated user (must be corretor or gestor)
 
     Raises:
-        HTTPException: If property is not found
+        HTTPException: If property is not found or user doesn't have permission
     """
     property_repo = PropertyRepository(db)
     property = property_repo.get_by_id(property_id)
