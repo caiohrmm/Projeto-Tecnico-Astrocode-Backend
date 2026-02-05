@@ -500,14 +500,25 @@ async def geocode_address(
     
     # Check if API key is configured
     # Pydantic Settings reads from environment variables, so GOOGLE_API_KEY should be available
-    api_key = getattr(settings, 'google_api_key', '') or os.getenv('GOOGLE_API_KEY', '')
+    api_key_raw = getattr(settings, 'google_api_key', '') or os.getenv('GOOGLE_API_KEY', '')
     
-    if not api_key or not api_key.strip():
-        logger.error("Google API key is not configured")
+    # Clean API key: remove whitespace, quotes, leading dashes/hyphens, newlines, carriage returns
+    # Remove all whitespace first, then quotes, then leading dashes
+    api_key = api_key_raw.strip()
+    api_key = api_key.strip('"').strip("'")  # Remove quotes
+    api_key = api_key.lstrip('-').lstrip('–').lstrip('—')  # Remove leading dashes (regular, en-dash, em-dash)
+    api_key = api_key.replace('\n', '').replace('\r', '').replace(' ', '').replace('\t', '')  # Remove all whitespace
+    
+    if not api_key:
+        logger.error("Google API key is not configured or is empty after cleaning")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Google API key is not configured. Please set GOOGLE_API_KEY in .env file and restart the server",
         )
+    
+    # Log cleaned API key info (without exposing full key)
+    if api_key_raw != api_key:
+        logger.info(f"API key was cleaned (original length: {len(api_key_raw)}, cleaned length: {len(api_key)}, starts with: {api_key[:10]}...)")
     
     # Clean and validate input
     address = address.strip() if address else ""
@@ -524,7 +535,8 @@ async def geocode_address(
         # Check if input is a Google Maps URL
         if is_google_maps_url(address):
             logger.info(f"Detected Google Maps URL: {address}")
-            data = await geocode_google_maps_url(address, api_key)
+            # Ensure API key is clean before passing to geocode function
+            data = await geocode_google_maps_url(address, api_key.strip())
         else:
             # Regular address geocoding - use "address" parameter for text input
             # NEVER use address text as place_id
