@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.routes import router as ai_summaries_router
+from app.ai.chat_router import router as ai_chat_router
 from app.api.routes import health
 from app.attendances.routes import router as attendances_router
 from app.auth.routes import router as auth_router
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(attendances_router)
     app.include_router(ai_summaries_router)
+    app.include_router(ai_chat_router)
     app.include_router(clients_router)
     app.include_router(properties_router)
     app.include_router(visits_router)

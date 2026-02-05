@@ -84,3 +84,26 @@ class AISummaryResponse(AISummaryBase):
         from_attributes = True
 
 
+# Chat schemas
+class ChatContext(BaseModel):
+    """Context data for chat requests."""
+
+    client_id: uuid.UUID | None = Field(None, description="Optional client ID for context")
+    property_id: uuid.UUID | None = Field(None, description="Optional property ID for context")
+    attendance_id: uuid.UUID | None = Field(None, description="Optional attendance ID for context")
+
+
+class ChatRequest(BaseModel):
+    """Request schema for AI chat endpoint."""
+
+    message: str = Field(..., min_length=1, max_length=2000, description="User's question or message")
+    context: ChatContext | None = Field(None, description="Optional context IDs to load data from database")
+
+
+class ChatResponse(BaseModel):
+    """Response schema for AI chat endpoint."""
+
+    answer: str = Field(..., description="AI's response to the user's question")
+    error: str | None = Field(None, description="Error message if request failed")
+
+

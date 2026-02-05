@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # Google Maps API controlled by .env file
     google_api_key: str = ""
     
+    # Gemini API controlled by .env file
+    gemini_api_key: str = ""
+    
     # Frontend URL for OAuth redirects
     frontend_url: str = "http://localhost:5173"
 
