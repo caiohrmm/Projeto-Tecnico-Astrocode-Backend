@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator, field_validator
 
 from app.clients.models import (
     ClientStatus,
@@ -20,8 +20,19 @@ class ClientBase(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255)
     phone: str = Field(..., min_length=1, max_length=20)
-    email: EmailStr
+    email: str | None = Field(None, max_length=255)
     lead_source: LeadSource
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str | None) -> str | None:
+        """Validate email format if provided, allow None."""
+        if v is None or v == "":
+            return None
+        # Basic email format validation
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("Invalid email format")
+        return v
 
 
 class ClientCreate(ClientBase):

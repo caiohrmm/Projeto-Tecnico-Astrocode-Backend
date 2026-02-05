@@ -75,13 +75,14 @@ def create_client(
     """
     repository = ClientRepository(db)
 
-    # Check if client with same email already exists
-    existing_client = repository.get_by_email(client_data.email)
-    if existing_client:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Client with this email already exists",
-        )
+    # Check if client with same email already exists (only if email is provided)
+    if client_data.email:
+        existing_client = repository.get_by_email(client_data.email)
+        if existing_client:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Client with this email already exists",
+            )
 
     # Validate assigned_agent_id if provided
     _validate_agent_is_corretor(client_data.assigned_agent_id, db)

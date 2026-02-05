@@ -122,9 +122,9 @@ class Client(Base):
         nullable=False,
         index=True,
     )
-    email: Mapped[str] = mapped_column(
+    email: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     lead_source: Mapped[LeadSource] = mapped_column(
