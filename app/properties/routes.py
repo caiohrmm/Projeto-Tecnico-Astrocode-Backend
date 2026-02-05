@@ -3,14 +3,16 @@
 import uuid
 from typing import List
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_active_user, get_current_agent_or_manager
+from app.config.settings import get_settings
 from app.db import get_db
 from app.properties.models import BusinessType, Property, PropertyStatus, PropertyType
 from app.properties.repository import PropertyRepository
-from app.properties.schemas import PropertyCreate, PropertyResponse, PropertyUpdate
+from app.properties.schemas import AddressData, PropertyCreate, PropertyResponse, PropertyUpdate
 from app.users.models import User
 from app.users.repository import UserRepository
 
@@ -233,4 +235,125 @@ def delete_property(
         )
 
     property_repo.delete(property)
+
+
+@router.get("/geocode/address", response_model=AddressData)
+def geocode_address(
+    address: str = Query(..., description="Address or place to geocode"),
+    current_user: User = Depends(get_current_active_user),
+) -> AddressData:
+    """
+    Geocode an address using Google Geocoding API.
+    
+    Returns structured address data including street, number, neighborhood,
+    city, state, zip_code, latitude, and longitude.
+    
+    Args:
+        address: Address string to geocode (e.g., "Rua Exemplo, 123, São Paulo, SP")
+        current_user: Current authenticated user
+        
+    Returns:
+        AddressData with parsed address components
+        
+    Raises:
+        HTTPException: If geocoding fails or API key is not configured
+    """
+    settings = get_settings()
+    
+    if not settings.google_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google API key is not configured",
+        )
+    
+    try:
+        # Call Google Geocoding API
+        url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {
+            "address": address,
+            "key": settings.google_api_key,
+            "language": "pt-BR",
+            "region": "br",  # Prioritize Brazil results
+        }
+        
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+        
+        if data.get("status") != "OK" or not data.get("results"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Geocoding failed: {data.get('status', 'UNKNOWN_ERROR')}",
+            )
+        
+        # Parse the first result
+        result = data["results"][0]
+        components = result.get("address_components", [])
+        geometry = result.get("geometry", {}).get("location", {})
+        
+        # Extract address components
+        address_data = AddressData()
+        
+        # Extract coordinates
+        if geometry.get("lat") and geometry.get("lng"):
+            address_data.latitude = str(geometry["lat"])
+            address_data.longitude = str(geometry["lng"])
+        
+        # Parse address components
+        street_parts = []
+        number = None
+        
+        for component in components:
+            types = component.get("types", [])
+            long_name = component.get("long_name", "")
+            short_name = component.get("short_name", "")
+            
+            if "street_number" in types:
+                number = long_name
+            elif "route" in types or "street_address" in types:
+                street_parts.append(long_name)
+            elif "sublocality_level_1" in types or "sublocality" in types or "neighborhood" in types:
+                if not address_data.neighborhood:
+                    address_data.neighborhood = long_name
+            elif "administrative_area_level_2" in types or "locality" in types:
+                if not address_data.city:
+                    address_data.city = long_name
+            elif "administrative_area_level_1" in types:
+                if not address_data.state:
+                    # Extract state abbreviation (2 letters)
+                    address_data.state = short_name.upper()[:2]
+            elif "postal_code" in types:
+                if not address_data.zip_code:
+                    # Remove non-numeric characters from postal code
+                    address_data.zip_code = "".join(filter(str.isdigit, long_name))
+        
+        # Combine street parts
+        if street_parts:
+            address_data.street = " ".join(street_parts)
+        
+        # Set number if found
+        if number:
+            address_data.number = number
+        else:
+            # Try to extract number from formatted address
+            formatted = result.get("formatted_address", "")
+            # Simple extraction - look for number pattern
+            import re
+            number_match = re.search(r'\b(\d+)\b', formatted)
+            if number_match:
+                address_data.number = number_match.group(1)
+        
+        return address_data
+        
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to connect to Google Geocoding API: {str(e)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Geocoding error: {str(e)}",
+        )
 

@@ -173,3 +173,40 @@ class PropertyResponse(PropertyBase):
 
         from_attributes = True
 
+
+# Google Places/Geocoding schemas
+class AddressComponents(BaseModel):
+    """Address component from Google Geocoding API."""
+
+    long_name: str
+    short_name: str
+    types: list[str]
+
+
+class GeocodeResult(BaseModel):
+    """Result from Google Geocoding API."""
+
+    formatted_address: str
+    address_components: list[AddressComponents]
+    geometry: dict
+    place_id: str
+
+
+class GeocodeResponse(BaseModel):
+    """Response from Google Geocoding API."""
+
+    results: list[GeocodeResult]
+    status: str
+
+
+class AddressData(BaseModel):
+    """Parsed address data for property form."""
+
+    street: str | None = None
+    number: str | None = None
+    neighborhood: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
+    latitude: str | None = None
+    longitude: str | None = None

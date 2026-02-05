@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/auth/google/callback"
     
+    # Google Maps API controlled by .env file
+    google_api_key: str = ""
+    
     # Frontend URL for OAuth redirects
     frontend_url: str = "http://localhost:5173"
 
