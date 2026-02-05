@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_active_user, get_current_agent_or_manager
 from app.config.settings import get_settings
+from app.core.logging import get_logger
 from app.db import get_db
 from app.properties.models import BusinessType, Property, PropertyStatus, PropertyType
 from app.properties.repository import PropertyRepository
@@ -18,6 +19,7 @@ from app.users.models import User
 from app.users.repository import UserRepository
 
 router = APIRouter(prefix="/properties", tags=["properties"])
+logger = get_logger(__name__)
 
 
 def _validate_agent_is_corretor(assigned_agent_id: uuid.UUID | None, db: Session) -> None:
@@ -266,10 +268,14 @@ def geocode_address(
     api_key = getattr(settings, 'google_api_key', '') or os.getenv('GOOGLE_API_KEY', '')
     
     if not api_key or not api_key.strip():
+        logger.error("Google API key is not configured")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Google API key is not configured. Please set GOOGLE_API_KEY in .env file and restart the server",
         )
+    
+    # Log API key status (without exposing the key)
+    logger.debug(f"Using Google API key (length: {len(api_key)}, starts with: {api_key[:10]}...)")
     
     try:
         # Call Google Geocoding API
@@ -281,15 +287,52 @@ def geocode_address(
             "region": "br",  # Prioritize Brazil results
         }
         
+        logger.debug(f"Geocoding request for address: {address}")
+        
         with httpx.Client(timeout=10.0) as client:
             response = client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
+            
+        logger.debug(f"Geocoding API response status: {data.get('status')}")
         
-        if data.get("status") != "OK" or not data.get("results"):
+        # Handle different Google API response statuses
+        api_status = data.get("status", "UNKNOWN_ERROR")
+        error_message_detail = data.get("error_message", "")
+        
+        if api_status != "OK":
+            error_message = f"Geocoding failed: {api_status}"
+            
+            # Provide helpful error messages based on status
+            if api_status == "REQUEST_DENIED":
+                logger.error(f"Geocoding REQUEST_DENIED. Error message: {error_message_detail}")
+                error_message = (
+                    "Geocoding request denied by Google API. "
+                    "Please verify in Google Cloud Console:\n"
+                    "1. Geocoding API is ENABLED\n"
+                    "2. Places API is ENABLED (optional but recommended)\n"
+                    "3. API key is valid and not expired\n"
+                    "4. API key restrictions (if any) allow requests from this server\n"
+                    "5. Billing is enabled (Google requires billing for Maps APIs)\n\n"
+                    f"Google error details: {error_message_detail if error_message_detail else 'No additional details'}",
+                )
+            elif api_status == "INVALID_REQUEST":
+                error_message = f"Invalid geocoding request. Please check the address format. {error_message_detail}"
+            elif api_status == "OVER_QUERY_LIMIT":
+                error_message = "Geocoding API quota exceeded. Please try again later or check your billing."
+            elif api_status == "ZERO_RESULTS":
+                error_message = "No results found for this address. Please try a more specific address."
+            
+            logger.error(f"Geocoding failed with status {api_status}: {error_message}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Geocoding failed: {data.get('status', 'UNKNOWN_ERROR')}",
+                detail=error_message,
+            )
+        
+        if not data.get("results"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No results found for this address",
             )
         
         # Parse the first result
