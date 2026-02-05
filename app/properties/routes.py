@@ -73,6 +73,49 @@ async def resolve_short_url(url: str) -> str:
         )
 
 
+def is_valid_place_id(place_id: str) -> bool:
+    """
+    Validate if a string is a valid Google Place ID.
+    
+    Google Place IDs are:
+    - Opaque strings (not human-readable)
+    - Typically 27+ characters long
+    - Contain alphanumeric characters, hyphens, and underscores
+    - No spaces or special characters that indicate human-readable text
+    
+    Args:
+        place_id: String to validate
+        
+    Returns:
+        True if it appears to be a valid Place ID, False otherwise
+    """
+    if not place_id or not isinstance(place_id, str):
+        return False
+    
+    place_id = place_id.strip()
+    
+    # Place IDs are typically long (Google uses 27+ character IDs)
+    if len(place_id) < 20:
+        return False
+    
+    # Place IDs should not contain spaces (human-readable text does)
+    if ' ' in place_id:
+        return False
+    
+    # Place IDs are opaque strings, not human-readable
+    # They typically contain alphanumeric, hyphens, underscores
+    # If it looks like readable text (contains common words), it's not a place_id
+    if any(char.isalpha() and char.isupper() and char.islower() for char in place_id):
+        # Mixed case might indicate readable text
+        pass
+    
+    # Valid pattern: alphanumeric, hyphens, underscores, no spaces
+    if not re.match(r'^[A-Za-z0-9_-]+$', place_id):
+        return False
+    
+    return True
+
+
 def extract_place_id_from_url(url: str) -> str | None:
     """
     Extract place_id from a Google Maps URL.
@@ -81,19 +124,26 @@ def extract_place_id_from_url(url: str) -> str | None:
         url: Google Maps URL
         
     Returns:
-        place_id if found, None otherwise
+        Valid place_id if found and validated, None otherwise
     """
     # Try to find place_id in query parameters
     parsed = urlparse(url)
     query_params = parse_qs(parsed.query)
     
     if 'place_id' in query_params:
-        return query_params['place_id'][0]
+        place_id = query_params['place_id'][0]
+        if is_valid_place_id(place_id):
+            return place_id
+        logger.warning(f"Invalid place_id extracted from URL query: {place_id[:50]}...")
     
     # Try to find in path (e.g., /maps/place/...)
-    path_match = re.search(r'/place/([^/]+)', parsed.path)
+    # Note: Path-based place IDs are less common, but we check anyway
+    path_match = re.search(r'/place/([^/?]+)', parsed.path)
     if path_match:
-        return path_match.group(1)
+        place_id = path_match.group(1)
+        if is_valid_place_id(place_id):
+            return place_id
+        logger.warning(f"Invalid place_id extracted from URL path: {place_id[:50]}...")
     
     return None
 
@@ -160,10 +210,10 @@ async def geocode_google_maps_url(url: str, api_key: str) -> dict:
         url = await resolve_short_url(url)
         logger.info(f"Resolved to: {url}")
     
-    # Try to extract place_id first (most reliable)
+    # Try to extract and validate place_id first (most reliable)
     place_id = extract_place_id_from_url(url)
-    if place_id:
-        logger.info(f"Extracted place_id from URL: {place_id}")
+    if place_id and is_valid_place_id(place_id):
+        logger.info(f"Using valid place_id from URL: {place_id[:20]}...")
         async with httpx.AsyncClient(timeout=10.0) as client:
             params = {
                 "place_id": place_id,
@@ -177,11 +227,11 @@ async def geocode_google_maps_url(url: str, api_key: str) -> dict:
             response.raise_for_status()
             return response.json()
     
-    # Try to extract coordinates
+    # Try to extract coordinates (fallback)
     coords = extract_coordinates_from_url(url)
     if coords:
         lat, lng = coords
-        logger.info(f"Extracted coordinates from URL: {lat}, {lng}")
+        logger.info(f"Using coordinates from URL: {lat}, {lng}")
         async with httpx.AsyncClient(timeout=10.0) as client:
             params = {
                 "latlng": f"{lat},{lng}",
@@ -195,13 +245,14 @@ async def geocode_google_maps_url(url: str, api_key: str) -> dict:
             response.raise_for_status()
             return response.json()
     
-    # If we can't extract place_id or coordinates, return error
+    # If we can't extract valid place_id or coordinates, return error
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=(
-            "Could not extract location information from Google Maps URL. "
-            "The URL must contain a place_id or coordinates (@lat,lng). "
-            "Please use a direct link to a place or location on Google Maps."
+            "Could not extract valid location information from Google Maps URL. "
+            "The URL must contain a valid place_id or coordinates (@lat,lng). "
+            "Please use a direct link to a place or location on Google Maps, "
+            "or use a plain text address instead."
         ),
     )
 
@@ -458,6 +509,14 @@ async def geocode_address(
             detail="Google API key is not configured. Please set GOOGLE_API_KEY in .env file and restart the server",
         )
     
+    # Clean and validate input
+    address = address.strip() if address else ""
+    if not address:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Address or location input is required",
+        )
+    
     # Log API key status (without exposing the key)
     logger.debug(f"Using Google API key (length: {len(api_key)}, starts with: {api_key[:10]}...)")
     
@@ -467,13 +526,21 @@ async def geocode_address(
             logger.info(f"Detected Google Maps URL: {address}")
             data = await geocode_google_maps_url(address, api_key)
         else:
-            # Regular address geocoding
-            logger.info(f"Geocoding request for address: {address}")
+            # Regular address geocoding - use "address" parameter for text input
+            # NEVER use address text as place_id
+            logger.info(f"Geocoding request for address text: {address[:100]}...")
             logger.debug(f"API key being used (first 15 chars): {api_key[:15]}... (total length: {len(api_key)})")
+            
+            # Validate that this is not being mistaken for a place_id
+            if is_valid_place_id(address):
+                logger.warning(
+                    f"Input looks like a place_id but was provided as text. "
+                    f"Using 'address' parameter instead of 'place_id' to avoid errors."
+                )
             
             url = "https://maps.googleapis.com/maps/api/geocode/json"
             params = {
-                "address": address,
+                "address": address,  # Always use "address" for text input
                 "key": api_key,
                 "language": "pt-BR",
                 "region": "br",  # Prioritize Brazil results
