@@ -1,6 +1,8 @@
 """AI Chat routes for Gemini-powered chat agent."""
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -15,13 +17,32 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
+# Thread pool executor for blocking Gemini API calls
+_executor: ThreadPoolExecutor | None = None
+
+
+def get_executor() -> ThreadPoolExecutor:
+    """Get or create the thread pool executor."""
+    global _executor
+    if _executor is None:
+        _executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="gemini")
+    return _executor
+
+
+def shutdown_executor():
+    """Shutdown the thread pool executor gracefully."""
+    global _executor
+    if _executor is not None:
+        _executor.shutdown(wait=True, timeout=5.0)
+        _executor = None
+
 
 @router.post(
     "/",
     response_model=ChatResponse,
     status_code=status.HTTP_200_OK,
 )
-def chat(
+async def chat(
     request: ChatRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -47,7 +68,7 @@ def chat(
     try:
         chat_service = ChatService(db)
         
-        # Load context data if IDs provided
+        # Load context data if IDs provided (synchronous DB operations are fine)
         context_data = None
         if request.context:
             context_data = chat_service.load_context(
@@ -56,11 +77,31 @@ def chat(
                 attendance_id=request.context.attendance_id,
             )
         
-        # Get AI response
-        response = chat_service.get_response(
-            message=request.message,
-            context_data=context_data,
-        )
+        # Run Gemini API call in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        executor = get_executor()
+        try:
+            response = await asyncio.wait_for(
+                loop.run_in_executor(
+                    executor,
+                    chat_service.get_response,
+                    request.message,
+                    context_data,
+                ),
+                timeout=35.0,  # Slightly longer than Gemini timeout (30s)
+            )
+        except asyncio.TimeoutError:
+            logger.error("Gemini API call timed out")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="AI service timeout. Please try again.",
+            )
+        except asyncio.CancelledError:
+            logger.warning("Gemini API call was cancelled")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Request was cancelled. Please try again.",
+            )
         
         return ChatResponse(**response)
         
@@ -70,6 +111,8 @@ def chat(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chat error: {str(e)}", exc_info=True)
         raise HTTPException(

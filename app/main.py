@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.routes import router as ai_summaries_router
-from app.ai.chat_router import router as ai_chat_router
+from app.ai.chat_router import router as ai_chat_router, shutdown_executor
 from app.api.routes import health
 from app.attendances.routes import router as attendances_router
 from app.auth.routes import router as auth_router
@@ -27,6 +27,9 @@ async def lifespan(app: FastAPI):
     logger.info("Application starting up")
     yield
     logger.info("Application shutting down")
+    # Cleanup thread pool executor for Gemini API calls
+    shutdown_executor()
+    logger.info("Thread pool executor shut down")
 
 
 def create_app() -> FastAPI:
