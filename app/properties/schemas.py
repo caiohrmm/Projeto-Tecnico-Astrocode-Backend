@@ -20,13 +20,13 @@ class PropertyBase(BaseModel):
     property_type: PropertyType = Field(..., description="Type of property")
     business_type: BusinessType = Field(..., description="Business type (SALE, RENT, BOTH)")
 
-    # Location
-    street: str = Field(..., min_length=1, max_length=255, description="Street address")
-    number: str = Field(..., min_length=1, max_length=20, description="Address number")
-    neighborhood: str = Field(..., min_length=1, max_length=255, description="Neighborhood")
-    city: str = Field(..., min_length=1, max_length=255, description="City")
-    state: str = Field(..., min_length=2, max_length=2, description="State (2 letters)")
-    zip_code: str = Field(..., min_length=1, max_length=10, description="ZIP code")
+    # Location (all optional)
+    street: str | None = Field(None, max_length=255, description="Street address")
+    number: str | None = Field(None, max_length=20, description="Address number")
+    neighborhood: str | None = Field(None, max_length=255, description="Neighborhood")
+    city: str | None = Field(None, max_length=255, description="City")
+    state: str | None = Field(None, max_length=2, description="State (2 letters)")
+    zip_code: str | None = Field(None, max_length=10, description="ZIP code")
     latitude: Decimal | None = Field(None, description="Latitude coordinate")
     longitude: Decimal | None = Field(None, description="Longitude coordinate")
 
@@ -74,9 +74,11 @@ class PropertyBase(BaseModel):
 
     @field_validator("state")
     @classmethod
-    def validate_state(cls, v: str) -> str:
+    def validate_state(cls, v: str | None) -> str | None:
         """Validate state is uppercase."""
-        return v.upper()
+        if v is not None:
+            return v.upper()
+        return v
 
 
 class PropertyCreate(PropertyBase):

@@ -145,33 +145,33 @@ class Property(Base):
         index=True,
     )
 
-    # Location
-    street: Mapped[str] = mapped_column(
+    # Location (all optional)
+    street: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
     )
-    number: Mapped[str] = mapped_column(
+    number: Mapped[str | None] = mapped_column(
         String(20),
-        nullable=False,
+        nullable=True,
     )
-    neighborhood: Mapped[str] = mapped_column(
+    neighborhood: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
         index=True,
     )
-    city: Mapped[str] = mapped_column(
+    city: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
         index=True,
     )
-    state: Mapped[str] = mapped_column(
+    state: Mapped[str | None] = mapped_column(
         String(2),
-        nullable=False,
+        nullable=True,
         index=True,
     )
-    zip_code: Mapped[str] = mapped_column(
+    zip_code: Mapped[str | None] = mapped_column(
         String(10),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     latitude: Mapped[Decimal | None] = mapped_column(
