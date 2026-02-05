@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class GeminiService:
     """Service for interacting with Google Gemini API."""
 
-    MODEL_NAME = "gemini-2.0-flash-exp"  # Using 2.0-flash-exp (2.5-flash not available yet)
+    MODEL_NAME = "gemini-2.5-flash"  # Using 2.0-flash-exp (2.5-flash not available yet)
     TIMEOUT_SECONDS = 30
 
     def __init__(self) -> None:
