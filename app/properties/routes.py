@@ -4,6 +4,9 @@ import uuid
 from typing import List
 
 import os
+import re
+from urllib.parse import parse_qs, urlparse
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -20,6 +23,187 @@ from app.users.repository import UserRepository
 
 router = APIRouter(prefix="/properties", tags=["properties"])
 logger = get_logger(__name__)
+
+
+def is_google_maps_url(input_str: str) -> bool:
+    """
+    Check if the input string is a Google Maps URL.
+    
+    Args:
+        input_str: Input string to check
+        
+    Returns:
+        True if the string is a Google Maps URL, False otherwise
+    """
+    if not input_str or not isinstance(input_str, str):
+        return False
+    
+    input_lower = input_str.lower().strip()
+    return (
+        'maps.google.com' in input_lower or
+        'maps.app.goo.gl' in input_lower or
+        'goo.gl/maps' in input_lower or
+        input_lower.startswith('https://maps.app.goo.gl/') or
+        input_lower.startswith('http://maps.app.goo.gl/')
+    )
+
+
+async def resolve_short_url(url: str) -> str:
+    """
+    Resolve a short Google Maps URL to its final expanded URL.
+    
+    Args:
+        url: Short URL to resolve (e.g., https://maps.app.goo.gl/xxxx)
+        
+    Returns:
+        Final expanded URL after following redirects
+        
+    Raises:
+        HTTPException: If the URL cannot be resolved
+    """
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
+            response = await client.get(url, follow_redirects=True)
+            return str(response.url)
+    except Exception as e:
+        logger.error(f"Failed to resolve short URL {url}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not resolve Google Maps short URL: {str(e)}",
+        )
+
+
+def extract_place_id_from_url(url: str) -> str | None:
+    """
+    Extract place_id from a Google Maps URL.
+    
+    Args:
+        url: Google Maps URL
+        
+    Returns:
+        place_id if found, None otherwise
+    """
+    # Try to find place_id in query parameters
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+    
+    if 'place_id' in query_params:
+        return query_params['place_id'][0]
+    
+    # Try to find in path (e.g., /maps/place/...)
+    path_match = re.search(r'/place/([^/]+)', parsed.path)
+    if path_match:
+        return path_match.group(1)
+    
+    return None
+
+
+def extract_coordinates_from_url(url: str) -> tuple[float, float] | None:
+    """
+    Extract latitude and longitude from a Google Maps URL.
+    
+    Supports formats like:
+    - @lat,lng
+    - @lat,lng,zoom
+    - ?q=lat,lng
+    
+    Args:
+        url: Google Maps URL
+        
+    Returns:
+        Tuple of (latitude, longitude) if found, None otherwise
+    """
+    # Try @lat,lng pattern (most common)
+    at_pattern = re.search(r'@(-?\d+\.?\d*),(-?\d+\.?\d*)', url)
+    if at_pattern:
+        try:
+            lat = float(at_pattern.group(1))
+            lng = float(at_pattern.group(2))
+            return (lat, lng)
+        except ValueError:
+            pass
+    
+    # Try q=lat,lng pattern
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+    if 'q' in query_params:
+        q_value = query_params['q'][0]
+        coords_match = re.search(r'(-?\d+\.?\d*),(-?\d+\.?\d*)', q_value)
+        if coords_match:
+            try:
+                lat = float(coords_match.group(1))
+                lng = float(coords_match.group(2))
+                return (lat, lng)
+            except ValueError:
+                pass
+    
+    return None
+
+
+async def geocode_google_maps_url(url: str, api_key: str) -> dict:
+    """
+    Geocode a Google Maps URL by extracting place_id or coordinates.
+    
+    Args:
+        url: Google Maps URL (may be short or full)
+        api_key: Google API key
+        
+    Returns:
+        Geocoding API response data
+        
+    Raises:
+        HTTPException: If the URL cannot be geocoded
+    """
+    # Resolve short URLs
+    if 'maps.app.goo.gl' in url.lower() or 'goo.gl/maps' in url.lower():
+        logger.info(f"Resolving short Google Maps URL: {url}")
+        url = await resolve_short_url(url)
+        logger.info(f"Resolved to: {url}")
+    
+    # Try to extract place_id first (most reliable)
+    place_id = extract_place_id_from_url(url)
+    if place_id:
+        logger.info(f"Extracted place_id from URL: {place_id}")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            params = {
+                "place_id": place_id,
+                "key": api_key,
+                "language": "pt-BR",
+            }
+            response = await client.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+    
+    # Try to extract coordinates
+    coords = extract_coordinates_from_url(url)
+    if coords:
+        lat, lng = coords
+        logger.info(f"Extracted coordinates from URL: {lat}, {lng}")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            params = {
+                "latlng": f"{lat},{lng}",
+                "key": api_key,
+                "language": "pt-BR",
+            }
+            response = await client.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+    
+    # If we can't extract place_id or coordinates, return error
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "Could not extract location information from Google Maps URL. "
+            "The URL must contain a place_id or coordinates (@lat,lng). "
+            "Please use a direct link to a place or location on Google Maps."
+        ),
+    )
 
 
 def _validate_agent_is_corretor(assigned_agent_id: uuid.UUID | None, db: Session) -> None:
@@ -241,8 +425,8 @@ def delete_property(
 
 
 @router.get("/geocode/address", response_model=AddressData)
-def geocode_address(
-    address: str = Query(..., description="Address or place to geocode"),
+async def geocode_address(
+    address: str = Query(..., description="Address, place, or Google Maps URL to geocode"),
     current_user: User = Depends(get_current_active_user),
 ) -> AddressData:
     """
@@ -278,23 +462,31 @@ def geocode_address(
     logger.debug(f"Using Google API key (length: {len(api_key)}, starts with: {api_key[:10]}...)")
     
     try:
-        # Call Google Geocoding API
-        url = "https://maps.googleapis.com/maps/api/geocode/json"
-        params = {
-            "address": address,
-            "key": api_key,
-            "language": "pt-BR",
-            "region": "br",  # Prioritize Brazil results
-        }
-        
-        logger.debug(f"Geocoding request for address: {address}")
-        
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
+        # Check if input is a Google Maps URL
+        if is_google_maps_url(address):
+            logger.info(f"Detected Google Maps URL: {address}")
+            data = await geocode_google_maps_url(address, api_key)
+        else:
+            # Regular address geocoding
+            logger.info(f"Geocoding request for address: {address}")
+            logger.debug(f"API key being used (first 15 chars): {api_key[:15]}... (total length: {len(api_key)})")
             
-        logger.debug(f"Geocoding API response status: {data.get('status')}")
+            url = "https://maps.googleapis.com/maps/api/geocode/json"
+            params = {
+                "address": address,
+                "key": api_key,
+                "language": "pt-BR",
+                "region": "br",  # Prioritize Brazil results
+            }
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+            
+        logger.info(f"Geocoding API response status: {data.get('status')}")
+        if data.get('error_message'):
+            logger.error(f"Google API error message: {data.get('error_message')}")
         
         # Handle different Google API response statuses
         api_status = data.get("status", "UNKNOWN_ERROR")
