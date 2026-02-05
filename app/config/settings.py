@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # Gemini API controlled by .env file
     gemini_api_key: str = ""
     
+    # Cloudinary controlled by .env file
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
+    
     # Frontend URL for OAuth redirects
     frontend_url: str = "http://localhost:5173"
 

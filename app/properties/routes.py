@@ -8,7 +8,7 @@ import re
 from urllib.parse import parse_qs, urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_active_user, get_current_agent_or_manager
@@ -18,6 +18,7 @@ from app.db import get_db
 from app.properties.models import BusinessType, Property, PropertyStatus, PropertyType
 from app.properties.repository import PropertyRepository
 from app.properties.schemas import AddressData, PropertyCreate, PropertyResponse, PropertyUpdate
+from app.services.cloudinary_service import get_cloudinary_service
 from app.users.models import User
 from app.users.repository import UserRepository
 
@@ -473,6 +474,80 @@ def delete_property(
         )
 
     property_repo.delete(property)
+
+
+@router.post(
+    "/{property_id}/main-image",
+    response_model=PropertyResponse,
+    status_code=status.HTTP_200_OK,
+)
+def upload_property_main_image(
+    property_id: uuid.UUID,
+    file: UploadFile = File(..., description="Property main image file (JPEG, PNG, or WebP)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_agent_or_manager),
+) -> PropertyResponse:
+    """
+    Upload main image for a property.
+
+    The image is uploaded to Cloudinary and stored in the folder:
+    properties/{property_id}/main_image
+
+    Only users with 'corretor' or 'gestor' roles can upload images.
+
+    Args:
+        property_id: UUID of the property
+        file: Image file to upload (JPEG, PNG, or WebP, max 10MB)
+        db: Database session
+        current_user: Current authenticated user (must be corretor or gestor)
+
+    Returns:
+        Updated property response with new main_image_url
+
+    Raises:
+        HTTPException: If property not found, file invalid, or upload fails
+    """
+    # Get property
+    property_repo = PropertyRepository(db)
+    property = property_repo.get_by_id(property_id)
+
+    if not property:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Property with ID {property_id} not found",
+        )
+
+    # Get Cloudinary service
+    cloudinary_service = get_cloudinary_service()
+
+    # Upload image to Cloudinary
+    try:
+        image_url = cloudinary_service.upload_property_main_image(
+            file=file,
+            property_id=property_id,
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors, etc.)
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload image for property {property_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload image: {str(e)}",
+        )
+
+    # Update property with new image URL
+    updated_property = property_repo.update_main_image_url(
+        property=property,
+        image_url=image_url,
+    )
+
+    logger.info(
+        f"Successfully updated main image for property {property_id} "
+        f"(user: {current_user.email})"
+    )
+
+    return PropertyResponse.model_validate(updated_property)
 
 
 @router.get("/geocode/address", response_model=AddressData)

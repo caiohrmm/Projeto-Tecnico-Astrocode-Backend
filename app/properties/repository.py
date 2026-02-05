@@ -142,6 +142,26 @@ class PropertyRepository:
         self.db.refresh(property)
         return property
 
+    def update_main_image_url(
+        self,
+        property: Property,
+        image_url: str,
+    ) -> Property:
+        """
+        Update property main image URL.
+
+        Args:
+            property: Property instance to update
+            image_url: New main image URL
+
+        Returns:
+            Updated property instance
+        """
+        property.main_image_url = image_url
+        self.db.commit()
+        self.db.refresh(property)
+        return property
+
     def delete(self, property: Property) -> None:
         """
         Delete a property.
