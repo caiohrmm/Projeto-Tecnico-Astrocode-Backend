@@ -3,6 +3,7 @@
 import uuid
 from typing import List
 
+import os
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -260,10 +261,14 @@ def geocode_address(
     """
     settings = get_settings()
     
-    if not settings.google_api_key:
+    # Check if API key is configured
+    # Pydantic Settings reads from environment variables, so GOOGLE_API_KEY should be available
+    api_key = getattr(settings, 'google_api_key', '') or os.getenv('GOOGLE_API_KEY', '')
+    
+    if not api_key or not api_key.strip():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Google API key is not configured",
+            detail="Google API key is not configured. Please set GOOGLE_API_KEY in .env file and restart the server",
         )
     
     try:
@@ -271,7 +276,7 @@ def geocode_address(
         url = "https://maps.googleapis.com/maps/api/geocode/json"
         params = {
             "address": address,
-            "key": settings.google_api_key,
+            "key": api_key,
             "language": "pt-BR",
             "region": "br",  # Prioritize Brazil results
         }
