@@ -151,15 +151,41 @@ class AttendanceRepository:
             ai_repo = AISummaryRepository(self.db)
             ai_summary = ai_repo.create(summary_data)
 
-            # Update client with AI-detected information if summary is completed
+            # Update attendance's ai_summary and ai_next_steps fields for backward compatibility
             if ai_summary.status.value == "COMPLETED":
+                attendance.ai_summary = ai_summary.summary_text
+                # Generate next steps from key points if available
+                if ai_summary.key_points:
+                    next_steps = []
+                    if ai_summary.interest_type_detected:
+                        next_steps.append(f"Tipo de interesse detectado: {ai_summary.interest_type_detected}")
+                    if ai_summary.urgency_level_detected:
+                        next_steps.append(f"Urgência: {ai_summary.urgency_level_detected}")
+                    if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
+                        budget_str = ""
+                        if ai_summary.budget_min_detected:
+                            budget_str += f"R$ {ai_summary.budget_min_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        if ai_summary.budget_max_detected:
+                            if budget_str:
+                                budget_str += " - "
+                            budget_str += f"R$ {ai_summary.budget_max_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        next_steps.append(f"Orçamento: {budget_str}")
+                    if next_steps:
+                        attendance.ai_next_steps = "\n".join(next_steps)
+                
+                # Update client with AI-detected information
                 self._update_client_from_ai_summary(attendance.client_id, ai_summary)
+            else:
+                # Even if failed, store error message
+                attendance.ai_summary = f"Erro ao gerar resumo: {ai_summary.error_message or 'Erro desconhecido'}"
 
         except Exception as e:
             # Log error but don't fail attendance creation
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Error generating AI summary for attendance {attendance.id}: {e}")
+            logger.error(f"Error generating AI summary for attendance {attendance.id}: {e}", exc_info=True)
+            # Store error in attendance field
+            attendance.ai_summary = f"Erro ao gerar resumo da IA: {str(e)}"
 
     def _update_client_from_ai_summary(self, client_id: uuid.UUID, ai_summary: AISummary) -> None:
         """
