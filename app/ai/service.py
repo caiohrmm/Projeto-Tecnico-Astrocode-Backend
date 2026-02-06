@@ -2,11 +2,13 @@
 
 import json
 import logging
+import re
 import uuid
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.ai.gemini_service import GeminiService
 from app.ai.models import (
     AISummary,
     AISummaryStatus,
@@ -25,8 +27,18 @@ class AISummaryService:
     """Service for generating AI summaries from attendances."""
 
     # Current prompt version
-    PROMPT_VERSION = "1.0.0"
-    MODEL_USED = "mock-ai-v1"  # Replace with actual model identifier when integrating real AI
+    PROMPT_VERSION = "2.0.0"
+    MODEL_USED = "gemini-2.5-flash"
+    
+    # Gemini service instance
+    _gemini_service: GeminiService | None = None
+    
+    @classmethod
+    def _get_gemini_service(cls) -> GeminiService:
+        """Get or create Gemini service instance."""
+        if cls._gemini_service is None:
+            cls._gemini_service = GeminiService()
+        return cls._gemini_service
 
     @staticmethod
     def generate_summary(
@@ -48,8 +60,8 @@ class AISummaryService:
         try:
             raw_content = attendance.raw_content.lower()
 
-            # Mock AI analysis - extract information from raw_content
-            summary_text = AISummaryService._generate_summary_text(raw_content)
+            # Generate AI summary using Gemini API
+            summary_text = AISummaryService._generate_summary_text(attendance.raw_content)
             key_points = AISummaryService._extract_key_points(raw_content)
             detected_intent = AISummaryService._detect_intent(raw_content)
             interest_type = AISummaryService._detect_interest_type(raw_content)
@@ -79,12 +91,14 @@ class AISummaryService:
                 key_points["property_type"] = detected_property_type.value
 
             # Generate property recommendations if no property is already assigned
+            # Always try to recommend if we have client preferences, even if no property is linked
             recommended_properties: list[uuid.UUID] | None = None
-            if not attendance.property_id and db:
+            if db and (not attendance.property_id or interest_type or city or detected_property_type or budget_range.get("min") or budget_range.get("max")):
                 recommended_properties = AISummaryService._recommend_properties(
                     db=db,
+                    client_id=attendance.client_id,
                     interest_type=interest_type.value if interest_type else None,
-                    property_type=detected_property_type,
+                    property_type=detected_property_type.value if detected_property_type else None,
                     city=city,
                     budget_min=budget_range.get("min"),
                     budget_max=budget_range.get("max"),
@@ -127,12 +141,66 @@ class AISummaryService:
 
     @staticmethod
     def _generate_summary_text(raw_content: str) -> str:
-        """Generate summary text from raw content."""
-        # Mock: Simple extraction
-        sentences = raw_content.split(".")
-        important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
-        summary = ". ".join(important_sentences)
-        return summary if summary else raw_content[:200]
+        """Generate summary text from raw content using Gemini API."""
+        gemini = AISummaryService._get_gemini_service()
+        
+        # If Gemini is not configured, fallback to simple extraction
+        if not gemini.is_configured():
+            logger.warning("Gemini API not configured, using fallback summary generation")
+            sentences = raw_content.split(".")
+            important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
+            summary = ". ".join(important_sentences)
+            return summary if summary else raw_content[:200]
+        
+        # Use Gemini to generate a real summary
+        prompt = f"""Você é um assistente especializado em análise de atendimentos imobiliários.
+
+Analise o seguinte conteúdo de atendimento e gere um resumo profissional, conciso e útil em português brasileiro.
+
+REGRAS IMPORTANTES:
+- NÃO copie o conteúdo original palavra por palavra
+- Crie um resumo objetivo destacando os pontos principais
+- Foque em: interesse do cliente, preferências (tipo de imóvel, localização, orçamento), urgência, sentimentos
+- Use linguagem profissional mas acessível
+- Seja específico sobre valores, localizações e preferências mencionadas
+- Máximo de 200 palavras
+
+CONTEÚDO DO ATENDIMENTO:
+{raw_content}
+
+RESUMO:"""
+        
+        try:
+            result = gemini.chat(
+                message=prompt,
+                system_prompt="Você é um assistente especializado em análise de atendimentos imobiliários.",
+            )
+            
+            if result.get("error"):
+                logger.error(f"Error generating summary with Gemini: {result.get('error')}")
+                # Fallback to simple extraction
+                sentences = raw_content.split(".")
+                important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
+                summary = ". ".join(important_sentences)
+                return summary if summary else raw_content[:200]
+            
+            summary = result.get("answer", "").strip()
+            if summary:
+                return summary
+            
+            # Fallback if empty response
+            sentences = raw_content.split(".")
+            important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
+            summary = ". ".join(important_sentences)
+            return summary if summary else raw_content[:200]
+            
+        except Exception as e:
+            logger.error(f"Exception generating summary with Gemini: {e}", exc_info=True)
+            # Fallback to simple extraction
+            sentences = raw_content.split(".")
+            important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
+            summary = ". ".join(important_sentences)
+            return summary if summary else raw_content[:200]
 
     @staticmethod
     def _extract_key_points(raw_content: str) -> dict[str, Any]:
@@ -318,5 +386,125 @@ class AISummaryService:
         confidence += min(found_keywords * 0.05, 0.1)
 
         return min(confidence, 1.0)
+    
+    @staticmethod
+    def _extract_city(raw_content: str) -> str | None:
+        """Extract city name from raw content."""
+        # Common Brazilian cities
+        brazilian_cities = [
+            "são paulo", "rio de janeiro", "belo horizonte", "brasília", "curitiba",
+            "porto alegre", "recife", "salvador", "fortaleza", "manaus",
+            "belém", "goiânia", "guarulhos", "campinas", "são luís",
+            "são gonçalo", "maceió", "duque de caxias", "natal", "teresina",
+            "campo grande", "nova iguaçu", "são bernardo do campo", "santo andré",
+            "joão pessoa", "jaboatão dos guararapes", "osasco", "são josé dos campos",
+            "ribeirão preto", "uberlândia", "contagem", "aracaju", "feira de santana",
+        ]
+        
+        content_lower = raw_content.lower()
+        
+        # Check for city mentions
+        for city in brazilian_cities:
+            if city in content_lower:
+                # Capitalize properly
+                return city.title()
+        
+        # Try to find patterns like "em [city]", "na cidade de [city]", etc.
+        patterns = [
+            r"(?:em|na|no|da|de)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+            r"cidade\s+(?:de|do|da)?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, raw_content)
+            if matches:
+                # Return first match that looks like a city name (has capital letter)
+                for match in matches:
+                    if len(match.split()) <= 3:  # City names are usually 1-3 words
+                        return match
+        
+        return None
+    
+    @staticmethod
+    def _extract_property_type(raw_content: str) -> PropertyTypeEnum | None:
+        """Extract property type from raw content."""
+        content_lower = raw_content.lower()
+        
+        # Map keywords to property types
+        type_keywords = {
+            PropertyTypeEnum.HOUSE: ["casa", "residencial", "sobrado", "casa térrea"],
+            PropertyTypeEnum.APARTMENT: ["apartamento", "apto", "ap", "flat"],
+            PropertyTypeEnum.LAND: ["terreno", "lote", "chácara", "sítio"],
+            PropertyTypeEnum.COMMERCIAL: ["comercial", "loja", "sala comercial", "galpão", "escritório"],
+            PropertyTypeEnum.RURAL: ["rural", "fazenda", "sítio", "chácara"],
+        }
+        
+        for prop_type, keywords in type_keywords.items():
+            if any(keyword in content_lower for keyword in keywords):
+                return prop_type
+        
+        return None
+    
+    @staticmethod
+    def _recommend_properties(
+        db: Session,
+        client_id: uuid.UUID,
+        interest_type: str | None = None,
+        property_type: str | None = None,
+        city: str | None = None,
+        budget_min: float | None = None,
+        budget_max: float | None = None,
+    ) -> list[uuid.UUID] | None:
+        """
+        Recommend properties based on client preferences extracted from attendance.
+        
+        Args:
+            db: Database session
+            client_id: Client UUID
+            interest_type: Detected interest type (BUY, RENT, etc.)
+            property_type: Detected property type string (HOUSE, APARTMENT, etc.)
+            city: Detected city of interest
+            budget_min: Minimum budget detected
+            budget_max: Maximum budget detected
+        
+        Returns:
+            List of recommended property UUIDs (max 5) or None if no matches
+        """
+        try:
+            property_repo = PropertyRepository(db)
+            
+            # Convert property_type string to PropertyTypeEnum if provided
+            # Note: PropertyRepository expects PropertyType from app.properties.models
+            from app.properties.models import PropertyType as PropType
+            property_type_enum = None
+            if property_type:
+                try:
+                    property_type_enum = PropType(property_type)
+                except ValueError:
+                    logger.warning(f"Invalid property type: {property_type}, ignoring")
+                    property_type_enum = None
+            
+            # Find recommended properties
+            properties = property_repo.find_recommended_properties(
+                interest_type=interest_type,
+                property_type=property_type_enum,
+                city=city,
+                budget_min=budget_min,
+                budget_max=budget_max,
+                limit=5,  # Return top 5 recommendations
+            )
+            
+            if not properties:
+                logger.info(f"No properties found matching criteria for client {client_id}")
+                return None
+            
+            # Return list of property IDs
+            property_ids = [prop.id for prop in properties]
+            logger.info(f"Found {len(property_ids)} recommended properties for client {client_id}")
+            return property_ids
+            
+        except Exception as e:
+            logger.error(f"Error recommending properties: {e}", exc_info=True)
+            return None
 
 
