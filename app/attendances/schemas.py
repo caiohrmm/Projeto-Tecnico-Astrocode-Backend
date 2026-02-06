@@ -44,6 +44,14 @@ class AttendanceBase(BaseModel):
         description="Scheduled visit date/time (will create a visit if provided)",
     )
 
+    @model_validator(mode="after")
+    def validate_dates(self) -> "AttendanceBase":
+        """Validate that ended_at is not before started_at."""
+        if self.ended_at is not None and self.started_at is not None:
+            if self.ended_at < self.started_at:
+                raise ValueError("ended_at cannot be before started_at")
+        return self
+
 
 class AttendanceCreate(AttendanceBase):
     """
@@ -76,6 +84,14 @@ class AttendanceUpdate(BaseModel):
     status: AttendanceStatus | None = None
     updated_client_status: ClientStatusUpdate | None = None
     scheduled_visit_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "AttendanceUpdate":
+        """Validate that ended_at is not before started_at."""
+        if self.ended_at is not None and self.started_at is not None:
+            if self.ended_at < self.started_at:
+                raise ValueError("ended_at cannot be before started_at")
+        return self
 
 
 class AttendanceResponse(AttendanceBase):

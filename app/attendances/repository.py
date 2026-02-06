@@ -460,11 +460,20 @@ class AttendanceRepository:
         """
         update_data = attendance_data.model_dump(exclude_unset=True)
 
-        # Recalculate duration if ended_at is being updated
-        if "ended_at" in update_data:
+        # Validate dates if both are being updated or if ended_at is being updated
+        if "ended_at" in update_data or "started_at" in update_data:
+            # Get the dates (use updated value if provided, otherwise use existing)
             started_at = update_data.get("started_at", attendance.started_at)
-            ended_at = update_data.get("ended_at")
-            update_data["duration"] = self._calculate_duration(started_at, ended_at)
+            ended_at = update_data.get("ended_at", attendance.ended_at)
+            
+            # Validate that ended_at is not before started_at
+            if ended_at is not None and started_at is not None:
+                if ended_at < started_at:
+                    raise ValueError("ended_at cannot be before started_at")
+            
+            # Recalculate duration if ended_at is being updated
+            if "ended_at" in update_data:
+                update_data["duration"] = self._calculate_duration(started_at, ended_at)
 
         # Serialize updated_client_status to JSON string if provided
         if "updated_client_status" in update_data and update_data["updated_client_status"] is not None:
@@ -479,6 +488,27 @@ class AttendanceRepository:
             and update_data["status"] == AttendanceStatus.COMPLETED
             and attendance.status != AttendanceStatus.COMPLETED
         )
+
+        # Check if fields that affect AI summary are being updated
+        ai_relevant_fields = ["raw_content", "started_at", "ended_at", "property_id", "client_id"]
+        ai_relevant_changed = any(field in update_data for field in ai_relevant_fields)
+        
+        # If AI-relevant fields changed and attendance is already completed, we need to regenerate AI summary
+        should_regen_ai = (
+            ai_relevant_changed
+            and attendance.status == AttendanceStatus.COMPLETED
+            and not status_changed_to_completed
+        )
+
+        # Delete existing AI summary if we need to regenerate
+        if should_regen_ai:
+            ai_repo = AISummaryRepository(self.db)
+            existing_ai_summary = ai_repo.get_by_attendance_id(attendance.id)
+            if existing_ai_summary:
+                ai_repo.delete(existing_ai_summary)
+                # Clear AI summary fields in attendance
+                attendance.ai_summary = None
+                attendance.ai_next_steps = None
 
         for field, value in update_data.items():
             setattr(attendance, field, value)
@@ -496,6 +526,9 @@ class AttendanceRepository:
 
             # Trigger AI processing for completed attendance
             self._process_completed_attendance(attendance)
+        elif should_regen_ai:
+            # Regenerate AI summary if relevant fields changed and attendance is completed
+            self._process_completed_attendance(attendance)
 
         # Update client status if provided
         if attendance_data.updated_client_status:
@@ -511,11 +544,18 @@ class AttendanceRepository:
 
     def delete(self, attendance: Attendance) -> None:
         """
-        Delete an attendance.
+        Delete an attendance and all related AI summaries.
 
         Args:
             attendance: Attendance instance to delete
         """
+        # Delete related AI summaries first (CASCADE should handle this, but being explicit)
+        ai_repo = AISummaryRepository(self.db)
+        ai_summary = ai_repo.get_by_attendance_id(attendance.id)
+        if ai_summary:
+            ai_repo.delete(ai_summary)
+        
+        # Delete the attendance
         self.db.delete(attendance)
         self.db.commit()
 
