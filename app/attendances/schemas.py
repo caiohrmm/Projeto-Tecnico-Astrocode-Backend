@@ -47,6 +47,7 @@ class AttendanceBase(BaseModel):
     @model_validator(mode="after")
     def validate_dates(self) -> "AttendanceBase":
         """Validate that ended_at is not before started_at."""
+        # Only validate if both dates are provided and ended_at is before started_at
         if self.ended_at is not None and self.started_at is not None:
             if self.ended_at < self.started_at:
                 raise ValueError("ended_at cannot be before started_at")
@@ -114,13 +115,29 @@ class AttendanceResponse(AttendanceBase):
     @classmethod
     def parse_updated_client_status(cls, data: Any) -> Any:
         """Parse updated_client_status from JSON string if needed."""
-        if isinstance(data, dict) and "updated_client_status" in data:
+        # Handle SQLAlchemy model instance
+        if hasattr(data, "__dict__"):
+            if hasattr(data, "updated_client_status"):
+                updated_status = data.updated_client_status
+                if isinstance(updated_status, str) and updated_status.strip():
+                    try:
+                        parsed = json.loads(updated_status)
+                        data.updated_client_status = ClientStatusUpdate(**parsed) if parsed else None
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        data.updated_client_status = None
+                elif updated_status is None or updated_status == "":
+                    data.updated_client_status = None
+        # Handle dict
+        elif isinstance(data, dict) and "updated_client_status" in data:
             updated_status = data["updated_client_status"]
-            if isinstance(updated_status, str):
+            if isinstance(updated_status, str) and updated_status.strip():
                 try:
-                    data["updated_client_status"] = json.loads(updated_status)
-                except (json.JSONDecodeError, TypeError):
+                    parsed = json.loads(updated_status)
+                    data["updated_client_status"] = ClientStatusUpdate(**parsed) if parsed else None
+                except (json.JSONDecodeError, TypeError, ValueError):
                     data["updated_client_status"] = None
+            elif updated_status is None or updated_status == "":
+                data["updated_client_status"] = None
         return data
 
     class Config:

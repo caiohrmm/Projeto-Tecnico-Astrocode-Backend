@@ -121,7 +121,20 @@ def list_attendances(
         started_from=started_from,
         started_to=started_to,
     )
-    return [AttendanceResponse.model_validate(attendance) for attendance in attendances]
+    
+    # Serialize attendances with error handling
+    result = []
+    for attendance in attendances:
+        try:
+            result.append(AttendanceResponse.model_validate(attendance))
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error serializing attendance {attendance.id}: {e}", exc_info=True)
+            # Continue with other attendances even if one fails
+            continue
+    
+    return result
 
 
 @router.get("/{attendance_id}", response_model=AttendanceResponse)
