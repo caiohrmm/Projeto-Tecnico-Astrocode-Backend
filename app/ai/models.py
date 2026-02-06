@@ -122,6 +122,11 @@ class AISummary(Base):
         nullable=True,
         comment="JSON array of key points extracted from attendance",
     )
+    recommended_properties: Mapped[list[uuid.UUID] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Array of recommended property IDs based on client preferences extracted from attendance",
+    )
 
     # Detected information
     detected_intent: Mapped[DetectedIntent | None] = mapped_column(

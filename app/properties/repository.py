@@ -111,6 +111,100 @@ class PropertyRepository:
         stmt = stmt.offset(skip).limit(limit).order_by(Property.created_at.desc())
         return list(self.db.scalars(stmt).all())
 
+    def find_recommended_properties(
+        self,
+        interest_type: str | None = None,
+        property_type: PropertyType | None = None,
+        city: str | None = None,
+        budget_min: float | None = None,
+        budget_max: float | None = None,
+        limit: int = 5,
+    ) -> List[Property]:
+        """
+        Find recommended properties based on client preferences.
+
+        Args:
+            interest_type: BUY or RENT
+            property_type: Type of property (HOUSE, APARTMENT, etc.)
+            city: City preference
+            budget_min: Minimum budget
+            budget_max: Maximum budget
+            limit: Maximum number of properties to return
+
+        Returns:
+            List of recommended property instances, ranked by relevance
+        """
+        from sqlalchemy import and_, or_
+
+        stmt = select(Property)
+
+        # Only show published properties
+        stmt = stmt.where(Property.status == PropertyStatus.PUBLISHED)
+
+        # Filter by business type based on interest
+        if interest_type == "BUY":
+            stmt = stmt.where(
+                or_(
+                    Property.business_type == BusinessType.SALE,
+                    Property.business_type == BusinessType.BOTH,
+                )
+            )
+        elif interest_type == "RENT":
+            stmt = stmt.where(
+                or_(
+                    Property.business_type == BusinessType.RENT,
+                    Property.business_type == BusinessType.BOTH,
+                )
+            )
+
+        # Filter by property type
+        if property_type:
+            stmt = stmt.where(Property.property_type == property_type)
+
+        # Filter by city
+        if city:
+            stmt = stmt.where(Property.city.ilike(f"%{city}%"))
+
+        # Filter by budget
+        if budget_min is not None or budget_max is not None:
+            price_conditions = []
+            if interest_type == "BUY":
+                # For buying, check price field
+                if budget_min is not None:
+                    price_conditions.append(Property.price >= budget_min)
+                if budget_max is not None:
+                    price_conditions.append(Property.price <= budget_max)
+            elif interest_type == "RENT":
+                # For renting, check rent_price field
+                if budget_min is not None:
+                    price_conditions.append(Property.rent_price >= budget_min)
+                if budget_max is not None:
+                    price_conditions.append(Property.rent_price <= budget_max)
+            else:
+                # If interest type not specified, check both
+                if budget_min is not None:
+                    price_conditions.append(
+                        or_(
+                            Property.price >= budget_min,
+                            Property.rent_price >= budget_min,
+                        )
+                    )
+                if budget_max is not None:
+                    price_conditions.append(
+                        or_(
+                            Property.price <= budget_max,
+                            Property.rent_price <= budget_max,
+                        )
+                    )
+
+            if price_conditions:
+                stmt = stmt.where(and_(*price_conditions))
+
+        # Order by relevance (published properties first, then by creation date)
+        stmt = stmt.order_by(Property.created_at.desc()).limit(limit)
+
+        return list(self.db.scalars(stmt).all())
+
     def update(
         self,
         property: Property,

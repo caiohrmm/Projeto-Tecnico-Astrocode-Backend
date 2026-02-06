@@ -27,6 +27,10 @@ class AISummaryBase(BaseModel):
     model_used: str | None = Field(None, max_length=100, description="AI model identifier used")
     prompt_version: str | None = Field(None, max_length=50, description="Version of the prompt template used")
     confidence_score: float | None = Field(None, ge=0.0, le=1.0, description="Confidence score (0.0-1.0)")
+    recommended_properties: list[uuid.UUID] | None = Field(
+        None,
+        description="Array of recommended property IDs based on client preferences",
+    )
     status: AISummaryStatus = Field(
         AISummaryStatus.PENDING,
         description="Processing status (defaults to PENDING)",
@@ -64,6 +68,7 @@ class AISummaryUpdate(BaseModel):
     model_used: str | None = Field(None, max_length=100)
     prompt_version: str | None = Field(None, max_length=50)
     confidence_score: float | None = Field(None, ge=0.0, le=1.0)
+    recommended_properties: list[uuid.UUID] | None = None
     status: AISummaryStatus | None = None
     error_message: str | None = None
 

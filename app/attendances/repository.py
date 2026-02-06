@@ -130,16 +130,115 @@ class AttendanceRepository:
             client_update = ClientUpdate(**update_data)
             client_repo.update(client, client_update)
 
+    def _process_completed_attendance(self, attendance: Attendance) -> None:
+        """
+        Process completed attendance with full AI analysis.
+
+        This method is called when an attendance is marked as COMPLETED.
+        It performs comprehensive AI processing including:
+        - Generating summary and next steps
+        - Detecting intent, sentiment, urgency
+        - Recommending properties
+        - Updating client state
+
+        Args:
+            attendance: Attendance instance that was just completed
+        """
+        try:
+            # Check if AI summary already exists
+            from app.ai.repository import AISummaryRepository
+            ai_repo = AISummaryRepository(self.db)
+            existing_summary = ai_repo.get_by_attendance_id(attendance.id)
+
+            if existing_summary:
+                # If exists, mark as REPROCESSING and update
+                existing_summary.status = AISummaryStatus.REPROCESSING
+                self.db.flush()
+
+            # Generate comprehensive AI summary with recommendations
+            ai_data = AISummaryService.generate_summary(attendance, db=self.db)
+
+            # Create or update AI summary record
+            summary_data = AISummaryCreate(
+                attendance_id=attendance.id,
+                client_id=attendance.client_id,
+                **ai_data,
+            )
+
+            if existing_summary:
+                # Update existing summary
+                from app.ai.schemas import AISummaryUpdate
+                update_data = AISummaryUpdate(**summary_data.model_dump(exclude={"attendance_id", "client_id"}))
+                ai_repo.update(existing_summary, update_data)
+                ai_summary = existing_summary
+            else:
+                # Create new summary
+                ai_summary = ai_repo.create(summary_data)
+
+            # Update attendance's ai_summary and ai_next_steps fields
+            if ai_summary.status.value == "COMPLETED":
+                attendance.ai_summary = ai_summary.summary_text
+                
+                # Generate next steps from AI analysis
+                next_steps = []
+                if ai_summary.detected_intent:
+                    intent_labels = {
+                        "PROPERTY_SEARCH": "Buscar propriedades similares",
+                        "SCHEDULE_VISIT": "Agendar visita",
+                        "PRICE_NEGOTIATION": "Negociar preço",
+                        "INFORMATION_REQUEST": "Enviar informações solicitadas",
+                        "FOLLOW_UP": "Fazer follow-up",
+                    }
+                    intent_label = intent_labels.get(ai_summary.detected_intent.value, "Acompanhar cliente")
+                    next_steps.append(intent_label)
+
+                if ai_summary.interest_type_detected:
+                    next_steps.append(f"Tipo de interesse: {ai_summary.interest_type_detected}")
+                
+                if ai_summary.urgency_level_detected:
+                    urgency_labels = {
+                        "IMMEDIATE": "URGENTE - Contatar imediatamente",
+                        "HIGH": "Alta prioridade - Contatar em até 24h",
+                        "MEDIUM": "Média prioridade - Contatar em até 3 dias",
+                        "LOW": "Baixa prioridade - Contatar em até 7 dias",
+                    }
+                    urgency_label = urgency_labels.get(ai_summary.urgency_level_detected, ai_summary.urgency_level_detected)
+                    next_steps.append(f"Urgência: {urgency_label}")
+
+                if ai_summary.recommended_properties:
+                    next_steps.append(f"Recomendar {len(ai_summary.recommended_properties)} propriedade(s) encontrada(s)")
+
+                if next_steps:
+                    attendance.ai_next_steps = "\n".join(f"• {step}" for step in next_steps)
+
+                # Update client with AI-detected information
+                self._update_client_from_ai_summary(attendance.client_id, ai_summary)
+            else:
+                # Even if failed, store error message
+                attendance.ai_summary = f"Erro ao gerar resumo: {ai_summary.error_message or 'Erro desconhecido'}"
+
+        except Exception as e:
+            # Log error but don't fail attendance update
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error processing completed attendance {attendance.id}: {e}", exc_info=True)
+            # Store error in attendance field
+            attendance.ai_summary = f"Erro ao processar atendimento completado: {str(e)}"
+
     def _generate_ai_summary(self, attendance: Attendance) -> None:
         """
-        Generate and save AI summary for attendance.
+        Generate and save AI summary for attendance (legacy method for creation).
+
+        This method is called when creating a new attendance.
+        For completed attendances, use _process_completed_attendance instead.
 
         Args:
             attendance: Attendance instance
         """
         try:
-            # Generate AI summary using AI service
-            ai_data = AISummaryService.generate_summary(attendance)
+            # Generate AI summary using AI service (without recommendations for new attendances)
+            # Pass None for db to skip property recommendations
+            ai_data = AISummaryService.generate_summary(attendance, db=None)
 
             # Create AI summary record
             summary_data = AISummaryCreate(
@@ -191,11 +290,15 @@ class AttendanceRepository:
         """
         Update client with information detected by AI summary.
 
+        This method applies AI-detected information to the client record.
+        It respects existing values and only updates when AI provides new information.
+
         Args:
             client_id: Client UUID
             ai_summary: AI summary instance
         """
         from app.clients.schemas import ClientUpdate
+        from datetime import datetime
 
         client_repo = ClientRepository(self.db)
         client = client_repo.get_by_id(client_id)
@@ -206,19 +309,37 @@ class AttendanceRepository:
         # Prepare update data from AI summary
         update_data = {}
 
-        # Update interest type if detected
-        if ai_summary.interest_type_detected:
+        # Update interest type if detected and not already set
+        if ai_summary.interest_type_detected and not client.current_interest_type:
             update_data["current_interest_type"] = ai_summary.interest_type_detected
 
-        # Update budget if detected
-        if ai_summary.budget_min_detected:
-            update_data["current_budget_min"] = ai_summary.budget_min_detected
-        if ai_summary.budget_max_detected:
-            update_data["current_budget_max"] = ai_summary.budget_max_detected
+        # Update property type if detected in key_points
+        if ai_summary.key_points and isinstance(ai_summary.key_points, dict):
+            detected_prop_type = ai_summary.key_points.get("property_type")
+            if detected_prop_type and not client.current_property_type:
+                update_data["current_property_type"] = detected_prop_type
 
-        # Update urgency level if detected
+        # Update city interest if detected in key_points
+        if ai_summary.key_points and isinstance(ai_summary.key_points, dict):
+            detected_city = ai_summary.key_points.get("city")
+            if detected_city and not client.current_city_interest:
+                update_data["current_city_interest"] = detected_city
+
+        # Update budget if detected (only if not already set or AI provides more specific range)
+        if ai_summary.budget_min_detected:
+            if not client.current_budget_min or ai_summary.budget_min_detected > client.current_budget_min:
+                update_data["current_budget_min"] = ai_summary.budget_min_detected
+        if ai_summary.budget_max_detected:
+            if not client.current_budget_max or ai_summary.budget_max_detected < client.current_budget_max:
+                update_data["current_budget_max"] = ai_summary.budget_max_detected
+
+        # Update urgency level if detected and higher than current
         if ai_summary.urgency_level_detected:
-            update_data["current_urgency_level"] = ai_summary.urgency_level_detected
+            urgency_order = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "IMMEDIATE": 4}
+            current_urgency_value = urgency_order.get(client.current_urgency_level or "LOW", 0)
+            new_urgency_value = urgency_order.get(ai_summary.urgency_level_detected, 0)
+            if new_urgency_value > current_urgency_value:
+                update_data["current_urgency_level"] = ai_summary.urgency_level_detected
 
         # Update lead score if suggested (use AI suggestion if higher than current)
         if ai_summary.lead_score_suggested is not None:
@@ -229,7 +350,6 @@ class AttendanceRepository:
                 pass  # Lead score is recalculated automatically in ClientRepository.update
 
         # Update last_contact_at
-        from datetime import datetime
         update_data["last_contact_at"] = datetime.utcnow()
 
         if update_data:
@@ -353,10 +473,29 @@ class AttendanceRepository:
                 client_status_update.model_dump(exclude_unset=True) if hasattr(client_status_update, "model_dump") else client_status_update
             )
 
+        # Check if status is being changed to COMPLETED
+        status_changed_to_completed = (
+            "status" in update_data
+            and update_data["status"] == AttendanceStatus.COMPLETED
+            and attendance.status != AttendanceStatus.COMPLETED
+        )
+
         for field, value in update_data.items():
             setattr(attendance, field, value)
 
         self.db.flush()
+
+        # Process AI summary if status changed to COMPLETED
+        if status_changed_to_completed:
+            # Ensure ended_at is set if not provided
+            if not attendance.ended_at:
+                from datetime import datetime
+                attendance.ended_at = datetime.utcnow()
+                attendance.duration = self._calculate_duration(attendance.started_at, attendance.ended_at)
+                self.db.flush()
+
+            # Trigger AI processing for completed attendance
+            self._process_completed_attendance(attendance)
 
         # Update client status if provided
         if attendance_data.updated_client_status:

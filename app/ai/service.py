@@ -2,7 +2,10 @@
 
 import json
 import logging
+import uuid
 from typing import Any
+
+from sqlalchemy.orm import Session
 
 from app.ai.models import (
     AISummary,
@@ -11,7 +14,9 @@ from app.ai.models import (
     Sentiment,
 )
 from app.attendances.models import Attendance
-from app.clients.models import InterestType, UrgencyLevel
+from app.clients.models import InterestType, PropertyType, UrgencyLevel
+from app.properties.models import PropertyType as PropertyTypeEnum
+from app.properties.repository import PropertyRepository
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +29,10 @@ class AISummaryService:
     MODEL_USED = "mock-ai-v1"  # Replace with actual model identifier when integrating real AI
 
     @staticmethod
-    def generate_summary(attendance: Attendance) -> dict[str, Any]:
+    def generate_summary(
+        attendance: Attendance,
+        db: Session | None = None,
+    ) -> dict[str, Any]:
         """
         Generate AI summary from attendance raw content.
 
@@ -60,6 +68,28 @@ class AISummaryService:
                 budget_range,
             )
 
+            # Extract city from raw content and add to key_points
+            city = AISummaryService._extract_city(raw_content)
+            if city and key_points:
+                key_points["city"] = city
+            
+            # Extract property type from raw content and add to key_points
+            detected_property_type = AISummaryService._extract_property_type(raw_content)
+            if detected_property_type and key_points:
+                key_points["property_type"] = detected_property_type.value
+
+            # Generate property recommendations if no property is already assigned
+            recommended_properties: list[uuid.UUID] | None = None
+            if not attendance.property_id and db:
+                recommended_properties = AISummaryService._recommend_properties(
+                    db=db,
+                    interest_type=interest_type.value if interest_type else None,
+                    property_type=detected_property_type,
+                    city=city,
+                    budget_min=budget_range.get("min"),
+                    budget_max=budget_range.get("max"),
+                )
+
             return {
                 "summary_text": summary_text,
                 "key_points": key_points,
@@ -70,6 +100,7 @@ class AISummaryService:
                 "urgency_level_detected": urgency_level,
                 "lead_score_suggested": lead_score,
                 "sentiment": sentiment,
+                "recommended_properties": recommended_properties,
                 "model_used": AISummaryService.MODEL_USED,
                 "prompt_version": AISummaryService.PROMPT_VERSION,
                 "confidence_score": confidence_score,
