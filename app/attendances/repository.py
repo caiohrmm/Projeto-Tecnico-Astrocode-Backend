@@ -193,7 +193,15 @@ class AttendanceRepository:
                     next_steps.append(intent_label)
 
                 if ai_summary.interest_type_detected:
-                    next_steps.append(f"Tipo de interesse: {ai_summary.interest_type_detected}")
+                    interest_type_labels = {
+                        "BUY": "Comprar imóvel",
+                        "RENT": "Alugar imóvel",
+                        "SELL": "Vender imóvel",
+                        "INVEST": "Investir em imóvel",
+                    }
+                    interest_type_value = ai_summary.interest_type_detected.value if hasattr(ai_summary.interest_type_detected, 'value') else str(ai_summary.interest_type_detected)
+                    interest_label = interest_type_labels.get(interest_type_value, interest_type_value)
+                    next_steps.append(f"Cliente interessado em: {interest_label}")
                 
                 if ai_summary.urgency_level_detected:
                     urgency_labels = {
@@ -202,8 +210,9 @@ class AttendanceRepository:
                         "MEDIUM": "Média prioridade - Contatar em até 3 dias",
                         "LOW": "Baixa prioridade - Contatar em até 7 dias",
                     }
-                    urgency_label = urgency_labels.get(ai_summary.urgency_level_detected, ai_summary.urgency_level_detected)
-                    next_steps.append(f"Urgência: {urgency_label}")
+                    urgency_value = ai_summary.urgency_level_detected.value if hasattr(ai_summary.urgency_level_detected, 'value') else str(ai_summary.urgency_level_detected)
+                    urgency_label = urgency_labels.get(urgency_value, urgency_value)
+                    next_steps.append(urgency_label)
 
                 if ai_summary.recommended_properties:
                     next_steps.append(f"Recomendar {len(ai_summary.recommended_properties)} propriedade(s) encontrada(s)")
@@ -253,24 +262,62 @@ class AttendanceRepository:
             # Update attendance's ai_summary and ai_next_steps fields for backward compatibility
             if ai_summary.status.value == "COMPLETED":
                 attendance.ai_summary = ai_summary.summary_text
-                # Generate next steps from key points if available
-                if ai_summary.key_points:
-                    next_steps = []
-                    if ai_summary.interest_type_detected:
-                        next_steps.append(f"Tipo de interesse detectado: {ai_summary.interest_type_detected}")
-                    if ai_summary.urgency_level_detected:
-                        next_steps.append(f"Urgência: {ai_summary.urgency_level_detected}")
-                    if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
-                        budget_str = ""
-                        if ai_summary.budget_min_detected:
-                            budget_str += f"R$ {ai_summary.budget_min_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                        if ai_summary.budget_max_detected:
-                            if budget_str:
-                                budget_str += " - "
-                            budget_str += f"R$ {ai_summary.budget_max_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                        next_steps.append(f"Orçamento: {budget_str}")
-                    if next_steps:
-                        attendance.ai_next_steps = "\n".join(next_steps)
+                # Generate next steps from AI analysis
+                next_steps = []
+                
+                # Add action based on detected intent
+                if ai_summary.detected_intent:
+                    intent_labels = {
+                        "PROPERTY_SEARCH": "Buscar propriedades compatíveis com o perfil",
+                        "SCHEDULE_VISIT": "Agendar visita para conhecer imóveis",
+                        "PRICE_NEGOTIATION": "Negociar valores e condições",
+                        "INFORMATION_REQUEST": "Enviar informações detalhadas",
+                        "FOLLOW_UP": "Realizar follow-up de acompanhamento",
+                        "DOCUMENTATION_REQUEST": "Preparar documentação solicitada",
+                        "COMPLAINT": "Resolver reclamação apresentada",
+                        "GENERAL_INQUIRY": "Acompanhar interesse do cliente",
+                    }
+                    intent_value = ai_summary.detected_intent.value if hasattr(ai_summary.detected_intent, 'value') else str(ai_summary.detected_intent)
+                    intent_label = intent_labels.get(intent_value, "Acompanhar cliente")
+                    next_steps.append(intent_label)
+                
+                if ai_summary.interest_type_detected:
+                    interest_type_labels = {
+                        "BUY": "Comprar imóvel",
+                        "RENT": "Alugar imóvel",
+                        "SELL": "Vender imóvel",
+                        "INVEST": "Investir em imóvel",
+                    }
+                    interest_type_value = ai_summary.interest_type_detected.value if hasattr(ai_summary.interest_type_detected, 'value') else str(ai_summary.interest_type_detected)
+                    interest_label = interest_type_labels.get(interest_type_value, interest_type_value)
+                    next_steps.append(f"Cliente interessado em: {interest_label}")
+                
+                if ai_summary.urgency_level_detected:
+                    urgency_labels = {
+                        "IMMEDIATE": "URGENTE - Contatar imediatamente",
+                        "HIGH": "Alta prioridade - Contatar em até 24h",
+                        "MEDIUM": "Média prioridade - Contatar em até 3 dias",
+                        "LOW": "Baixa prioridade - Contatar em até 7 dias",
+                    }
+                    urgency_value = ai_summary.urgency_level_detected.value if hasattr(ai_summary.urgency_level_detected, 'value') else str(ai_summary.urgency_level_detected)
+                    urgency_label = urgency_labels.get(urgency_value, urgency_value)
+                    next_steps.append(urgency_label)
+                
+                if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
+                    budget_str = ""
+                    if ai_summary.budget_min_detected:
+                        budget_str += f"R$ {ai_summary.budget_min_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    if ai_summary.budget_max_detected:
+                        if budget_str:
+                            budget_str += " - "
+                        budget_str += f"R$ {ai_summary.budget_max_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    next_steps.append(f"Orçamento identificado: {budget_str}")
+                
+                if ai_summary.recommended_properties and len(ai_summary.recommended_properties) > 0:
+                    next_steps.append(f"Apresentar {len(ai_summary.recommended_properties)} imóvel(eis) recomendado(s)")
+                
+                if next_steps:
+                    attendance.ai_next_steps = "\n".join(f"• {step}" for step in next_steps)
                 
                 # Update client with AI-detected information
                 self._update_client_from_ai_summary(attendance.client_id, ai_summary)
