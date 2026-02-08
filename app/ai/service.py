@@ -81,12 +81,13 @@ class AISummaryService:
             )
 
             # Extract city from raw content and add to key_points
-            city = AISummaryService._extract_city(raw_content)
+            # Note: use original content (not lowercased) for city extraction
+            city = AISummaryService._extract_city(attendance.raw_content)
             if city and key_points:
                 key_points["city"] = city
             
             # Extract property type from raw content and add to key_points
-            detected_property_type = AISummaryService._extract_property_type(raw_content)
+            detected_property_type = AISummaryService._extract_property_type(attendance.raw_content)
             if detected_property_type and key_points:
                 key_points["property_type"] = detected_property_type.value
 
@@ -390,38 +391,53 @@ RESUMO:"""
     @staticmethod
     def _extract_city(raw_content: str) -> str | None:
         """Extract city name from raw content."""
-        # Common Brazilian cities
-        brazilian_cities = [
-            "são paulo", "rio de janeiro", "belo horizonte", "brasília", "curitiba",
-            "porto alegre", "recife", "salvador", "fortaleza", "manaus",
-            "belém", "goiânia", "guarulhos", "campinas", "são luís",
-            "são gonçalo", "maceió", "duque de caxias", "natal", "teresina",
-            "campo grande", "nova iguaçu", "são bernardo do campo", "santo andré",
-            "joão pessoa", "jaboatão dos guararapes", "osasco", "são josé dos campos",
-            "ribeirão preto", "uberlândia", "contagem", "aracaju", "feira de santana",
-        ]
-        
         content_lower = raw_content.lower()
         
-        # Check for city mentions
-        for city in brazilian_cities:
-            if city in content_lower:
-                # Capitalize properly
-                return city.title()
-        
         # Try to find patterns like "em [city]", "na cidade de [city]", etc.
+        # This approach is more flexible and catches any city name
         patterns = [
-            r"(?:em|na|no|da|de)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
-            r"cidade\s+(?:de|do|da)?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+            # "em Manduri", "em São Paulo", etc.
+            r"(?:em|na|no|para)\s+([A-Z][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-Z][a-zà-ú]+)*)",
+            # "cidade de Manduri"
+            r"cidade\s+(?:de|do|da)?\s*([A-Z][a-zà-ú]+(?:\s+[A-Za-zà-ú]+)*)",
+            # "morar em Manduri"
+            r"morar\s+em\s+([A-Z][a-zà-ú]+(?:\s+[A-Za-zà-ú]+)*)",
+            # "imóvel em Manduri"
+            r"imóvel\s+em\s+([A-Z][a-zà-ú]+(?:\s+[A-Za-zà-ú]+)*)",
+            # "casa em Manduri"
+            r"(?:casa|apartamento|terreno)\s+em\s+([A-Z][a-zà-ú]+(?:\s+[A-Za-zà-ú]+)*)",
         ]
         
         for pattern in patterns:
             matches = re.findall(pattern, raw_content)
             if matches:
-                # Return first match that looks like a city name (has capital letter)
                 for match in matches:
-                    if len(match.split()) <= 3:  # City names are usually 1-3 words
-                        return match
+                    # Clean up the match
+                    city = match.strip()
+                    # Skip common non-city words
+                    skip_words = ["casa", "apartamento", "imóvel", "terreno", "comprar", 
+                                  "alugar", "vender", "buscar", "procurar", "quer"]
+                    if city.lower() not in skip_words and len(city) > 2:
+                        # City names are usually 1-3 words
+                        if len(city.split()) <= 4:
+                            return city
+        
+        # Also check for cities mentioned with lowercase after prepositions
+        lowercase_patterns = [
+            r"(?:em|na|no|para)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
+        ]
+        
+        for pattern in lowercase_patterns:
+            matches = re.findall(pattern, content_lower)
+            if matches:
+                for match in matches:
+                    city = match.strip()
+                    skip_words = ["casa", "apartamento", "imóvel", "terreno", "comprar", 
+                                  "alugar", "vender", "buscar", "procurar", "quer", "uma", "um",
+                                  "breve", "geral", "qualquer", "lugar", "algum"]
+                    if city.lower() not in skip_words and len(city) > 3:
+                        if len(city.split()) <= 3:
+                            return city.title()
         
         return None
     
