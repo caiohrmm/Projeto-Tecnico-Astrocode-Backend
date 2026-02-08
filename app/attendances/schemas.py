@@ -95,15 +95,40 @@ class AttendanceUpdate(BaseModel):
         return self
 
 
-class AttendanceResponse(AttendanceBase):
+class AttendanceResponse(BaseModel):
     """
     Schema for attendance response.
 
     Includes all base fields plus id, duration, and timestamps.
     Duration is calculated automatically.
+    
+    Note: This schema does not validate dates to allow reading existing data
+    that may have invalid date relationships. Validation is only applied
+    when creating or updating attendances.
     """
 
     id: uuid.UUID
+    client_id: uuid.UUID = Field(..., description="Client ID (required)")
+    agent_id: uuid.UUID = Field(..., description="Agent ID (required, must be corretor)")
+    property_id: uuid.UUID | None = Field(None, description="Property ID (nullable)")
+    channel: AttendanceChannel = Field(..., description="Communication channel")
+    started_at: datetime = Field(..., description="When the attendance started")
+    ended_at: datetime | None = Field(None, description="When the attendance ended")
+    raw_content: str = Field(..., min_length=1, description="Raw content of the attendance")
+    ai_summary: str | None = Field(None, description="AI-generated summary")
+    ai_next_steps: str | None = Field(None, description="AI-generated next steps")
+    status: AttendanceStatus = Field(
+        AttendanceStatus.IN_PROGRESS,
+        description="Attendance status (defaults to IN_PROGRESS)",
+    )
+    updated_client_status: ClientStatusUpdate | None = Field(
+        None,
+        description="Client status updates (current_status, current_interest_type, current_property_type)",
+    )
+    scheduled_visit_at: datetime | None = Field(
+        None,
+        description="Scheduled visit date/time (will create a visit if provided)",
+    )
     duration: int | None = Field(
         None,
         description="Duration in seconds (calculated automatically when ended_at is set)",
