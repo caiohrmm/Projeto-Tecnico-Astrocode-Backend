@@ -20,6 +20,7 @@ from app.clients.score_service import LeadScoreService
 from app.clients.schemas import ClientUpdate
 from app.visits.models import Visit, VisitStatus
 from app.visits.repository import VisitRepository
+from app.clients.timeline_models import ClientTimeline, TimelineEventType
 
 
 class AttendanceRepository:
@@ -92,6 +93,19 @@ class AttendanceRepository:
         # Create visit if scheduled_visit_at is provided
         if attendance_data.scheduled_visit_at:
             self._create_visit_from_attendance(db_attendance)
+
+        # Add timeline event
+        self._add_timeline_event(
+            client_id=db_attendance.client_id,
+            event_type=TimelineEventType.ATTENDANCE_STARTED,
+            title="Novo atendimento iniciado",
+            description=f"Atendimento via {db_attendance.channel.value if db_attendance.channel else 'canal desconhecido'}",
+            related_attendance_id=db_attendance.id,
+            event_data={
+                "channel": db_attendance.channel.value if db_attendance.channel else None,
+                "status": db_attendance.status.value if db_attendance.status else None,
+            },
+        )
 
         self.db.commit()
         self.db.refresh(db_attendance)
@@ -222,6 +236,57 @@ class AttendanceRepository:
 
                 # Update client with AI-detected information
                 self._update_client_from_ai_summary(attendance.client_id, ai_summary)
+                
+                # Add timeline event for completed attendance
+                self._add_timeline_event(
+                    client_id=attendance.client_id,
+                    event_type=TimelineEventType.ATTENDANCE_COMPLETED,
+                    title="Atendimento concluído",
+                    description=ai_summary.summary_text[:200] if ai_summary.summary_text else "Atendimento finalizado",
+                    related_attendance_id=attendance.id,
+                    event_data={
+                        "lead_score": ai_summary.lead_score_suggested,
+                        "sentiment": ai_summary.sentiment.value if ai_summary.sentiment else None,
+                        "detected_intent": ai_summary.detected_intent.value if ai_summary.detected_intent else None,
+                        "has_property_recommendations": bool(ai_summary.recommended_properties),
+                    },
+                    ai_generated=True,
+                    importance=4,
+                )
+                
+                # Add timeline event for AI insights
+                self._add_timeline_event(
+                    client_id=attendance.client_id,
+                    event_type=TimelineEventType.AI_INSIGHT_GENERATED,
+                    title="IA gerou novos insights",
+                    description=f"Lead Score: {ai_summary.lead_score_suggested}, Sentimento: {ai_summary.sentiment.value if ai_summary.sentiment else 'N/A'}",
+                    related_attendance_id=attendance.id,
+                    event_data={
+                        "lead_score": ai_summary.lead_score_suggested,
+                        "sentiment": ai_summary.sentiment.value if ai_summary.sentiment else None,
+                        "confidence": ai_summary.confidence_score,
+                        "interest_type": ai_summary.interest_type_detected,
+                        "urgency": ai_summary.urgency_level_detected,
+                    },
+                    ai_generated=True,
+                    importance=3,
+                )
+                
+                # Add timeline event for property recommendations if any
+                if ai_summary.recommended_properties:
+                    self._add_timeline_event(
+                        client_id=attendance.client_id,
+                        event_type=TimelineEventType.AI_PROPERTY_RECOMMENDED,
+                        title=f"IA recomendou {len(ai_summary.recommended_properties)} imóveis",
+                        description="Imóveis compatíveis com o perfil do cliente foram identificados",
+                        related_attendance_id=attendance.id,
+                        event_data={
+                            "property_ids": [str(p) for p in ai_summary.recommended_properties],
+                            "count": len(ai_summary.recommended_properties),
+                        },
+                        ai_generated=True,
+                        importance=4,
+                    )
             else:
                 # Even if failed, store error message
                 attendance.ai_summary = f"Erro ao gerar resumo: {ai_summary.error_message or 'Erro desconhecido'}"
@@ -233,6 +298,53 @@ class AttendanceRepository:
             logger.error(f"Error processing completed attendance {attendance.id}: {e}", exc_info=True)
             # Store error in attendance field
             attendance.ai_summary = f"Erro ao processar atendimento completado: {str(e)}"
+
+    def _add_timeline_event(
+        self,
+        client_id: uuid.UUID,
+        event_type: TimelineEventType,
+        title: str,
+        description: str | None = None,
+        related_attendance_id: uuid.UUID | None = None,
+        related_visit_id: uuid.UUID | None = None,
+        related_property_id: uuid.UUID | None = None,
+        event_data: dict | None = None,
+        ai_generated: bool = False,
+        importance: int = 3,
+    ) -> None:
+        """
+        Add a timeline event for the client.
+        
+        Args:
+            client_id: Client UUID
+            event_type: Type of event
+            title: Event title
+            description: Event description
+            related_attendance_id: Related attendance ID
+            related_visit_id: Related visit ID
+            related_property_id: Related property ID
+            metadata: Additional metadata
+            ai_generated: Whether AI generated this event
+            importance: Importance level (1-5)
+        """
+        try:
+            event = ClientTimeline(
+                client_id=client_id,
+                event_type=event_type,
+                title=title,
+                description=description,
+                event_data=event_data,
+                related_attendance_id=related_attendance_id,
+                related_visit_id=related_visit_id,
+                related_property_id=related_property_id,
+                ai_generated=ai_generated,
+                importance=importance,
+            )
+            self.db.add(event)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error adding timeline event: {e}", exc_info=True)
 
     def _generate_ai_summary(self, attendance: Attendance) -> None:
         """
