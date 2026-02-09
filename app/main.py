@@ -14,6 +14,7 @@ from app.auth.routes import router as auth_router
 from app.clients.routes import router as clients_router
 from app.config.settings import get_settings
 from app.core.logging import get_logger, setup_logging
+from app.losses.routes import router as losses_router
 from app.properties.routes import router as properties_router
 from app.sales.routes import router as sales_router
 from app.users.routes import router as users_router
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_chat_router)
     app.include_router(ai_journey_router)
     app.include_router(clients_router)
+    app.include_router(losses_router)
     app.include_router(properties_router)
     app.include_router(sales_router)
     app.include_router(visits_router)
