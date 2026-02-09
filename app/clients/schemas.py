@@ -43,6 +43,18 @@ class ClientCreate(ClientBase):
     All other fields are optional and can be set later.
     """
 
+    # Initial message for AI classification
+    initial_message: str | None = Field(
+        None,
+        description="First message from the client (used for AI classification)",
+    )
+    
+    # Flag to enable/disable AI classification
+    use_ai_classification: bool = Field(
+        True,
+        description="Whether to use AI for initial lead classification",
+    )
+
     # Funnel Status & Scoring (optional)
     current_status: ClientStatus | None = Field(
         None,
@@ -52,7 +64,7 @@ class ClientCreate(ClientBase):
         None,
         ge=0,
         le=100,
-        description="Lead score from 0 to 100 (calculated automatically, ignored if provided)",
+        description="Lead score from 0 to 100 (calculated automatically if AI enabled)",
     )
     current_urgency_level: UrgencyLevel | None = Field(
         None,
@@ -213,5 +225,33 @@ class ClientInDB(ClientResponse):
     """
 
     pass
+
+
+class LeadClassificationResult(BaseModel):
+    """Schema for AI lead classification result."""
+    
+    lead_score: int = Field(..., ge=0, le=100, description="Lead score 0-100")
+    urgency_level: UrgencyLevel
+    interest_type: InterestType | None = None
+    property_type: PropertyType | None = None
+    suggested_status: ClientStatus = ClientStatus.NEW_LEAD
+    
+    classification_reason: str = Field(..., description="AI explanation for classification")
+    key_indicators: list[str] = Field(default_factory=list, description="Key indicators detected")
+    recommended_actions: list[str] = Field(default_factory=list, description="Recommended next actions")
+    confidence: float = Field(..., ge=0, le=1, description="Classification confidence 0-1")
+
+
+class ClientWithClassification(ClientResponse):
+    """Schema for client response with AI classification details."""
+    
+    ai_classification: LeadClassificationResult | None = None
+
+
+class ClassifyLeadRequest(BaseModel):
+    """Schema for lead classification request."""
+    
+    initial_message: str | None = Field(None, description="Message to analyze")
+    notes: str | None = Field(None, description="Additional notes")
 
 
