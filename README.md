@@ -1,493 +1,422 @@
-# Real Estate Attendance Backend
+# Desafio Técnico - Astrocode
 
-Backend de auxílio ao atendimento em imobiliárias, focado em organização de leads, histórico de atendimentos, geração automática de resumos via IA e dashboard gerencial.
+<div align="center">
 
-## Stack
+**CRM Imobiliário com Inteligência Artificial**
 
-- **Linguagem:** Python 3.11+
-- **Framework:** FastAPI
-- **ORM:** SQLAlchemy
-- **Banco de dados:** PostgreSQL
-- **Migrações:** Alembic
-- **Auth:** JWT + OAuth2 (Google)
-- **IA:** LLM para resumo e sugestões
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Vue.js](https://img.shields.io/badge/Vue.js-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 
-## Arquitetura
+[Funcionalidades](#-funcionalidades) • [Arquitetura](#-arquitetura) • [Instalação](#-instalação) • [API](#-referência-da-api) • [IA](#-capacidades-de-ia)
+
+</div>
+
+---
+
+## 🎯 Sobre o Projeto
+
+Sistema de CRM (Customer Relationship Management) desenvolvido para imobiliárias e corretores de imóveis. A aplicação resolve os principais desafios do setor:
+
+- **Gestão de Leads** — Acompanhamento completo do cliente desde o primeiro contato até o fechamento
+- **Insights Inteligentes** — IA analisa automaticamente cada atendimento, extraindo informações-chave e sugerindo próximos passos
+- **Histórico de Atendimentos** — Registro completo de todas as comunicações via WhatsApp, telefone, e-mail e presencial
+- **Match de Imóveis** — Recomendações inteligentes vinculando preferências do cliente aos imóveis disponíveis
+- **Analytics de Performance** — Acompanhamento de vendas, perdas e desempenho com análise de padrões por IA
+
+> Desenvolvido para equipes que querem gastar menos tempo com cadastros e mais tempo fechando negócios.
+
+---
+
+## ✨ Funcionalidades
+
+### CRM Principal
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| **Gestão de Clientes/Leads** | Acompanhamento completo do ciclo de vida com funil personalizável |
+| **Registro de Atendimentos** | Log de toda interação com clientes em todos os canais |
+| **Catálogo de Imóveis** | Gerenciamento de anúncios com fotos, detalhes e status |
+| **Agendamento de Visitas** | Agendar, confirmar e acompanhar visitas a imóveis |
+| **Gestão de Vendas** | Registro de transações com acompanhamento de comissões |
+| **Análise de Perdas** | Documentação de negócios perdidos para identificar melhorias |
+
+### Inteligência Artificial
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| **Resumo Automático** | Todo atendimento é automaticamente resumido pela IA |
+| **Detecção de Intenção** | IA identifica intenções do cliente (comprar, alugar, agendar visita, negociar) |
+| **Enriquecimento de Perfil** | Extrai automaticamente orçamento, preferências de localização e tipo de imóvel |
+| **Lead Scoring** | Pontuação dinâmica baseada na análise das interações |
+| **Assistente em Tempo Real** | Sugestões ao vivo durante o atendimento (perguntas, imóveis para mostrar) |
+| **Classificação de Leads** | Novos leads são automaticamente pontuados e priorizados |
+| **Análise de Padrões de Perda** | IA identifica tendências em negócios perdidos |
+
+### Segurança e Autenticação
+- Autenticação JWT com expiração configurável
+- Integração com Google OAuth 2.0
+- Controle de acesso por papéis (Gestor, Corretor, Atendente)
+
+---
+
+## 🏗️ Arquitetura
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       Aplicação FastAPI                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
+│  │   Auth   │ │ Clientes │ │Atendimen.│ │ Imóveis  │           │
+│  │  Módulo  │ │  Módulo  │ │  Módulo  │ │  Módulo  │           │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘           │
+│       │            │            │            │                   │
+│  ┌────┴────────────┴────────────┴────────────┴─────┐            │
+│  │                 Serviços de IA                   │            │
+│  │  • Integração Gemini    • Análise em Tempo Real │            │
+│  │  • Jornada do Cliente   • Classificação de Lead │            │
+│  └─────────────────────────────────────────────────┘            │
+│                              │                                   │
+│  ┌───────────────────────────┴───────────────────────┐          │
+│  │              SQLAlchemy ORM + Alembic             │          │
+│  └───────────────────────────────────────────────────┘          │
+│                              │                                   │
+└──────────────────────────────┼──────────────────────────────────┘
+                               │
+                    ┌──────────┴──────────┐
+                    │    PostgreSQL       │
+                    │    Banco de Dados   │
+                    └─────────────────────┘
+```
+
+### Estrutura do Projeto
 
 ```
 app/
-├── core/       # Bootstrap, logging, utilitários
-├── config/     # Configuração e variáveis de ambiente
-├── db/         # SQLAlchemy, sessões, modelos
-├── auth/       # Autenticação
-├── users/      # Domínio de usuários
-├── clients/    # Domínio de clientes/leads
-├── properties/ # Domínio de imóveis
-├── attendances/# Domínio de atendimentos
-├── ai/         # Integração com LLM
-├── dashboard/  # Métricas gerenciais
-└── api/        # Rotas e endpoints
+├── ai/                 # Serviços de IA e integração Gemini
+│   ├── gemini_service.py      # Cliente da API Google Gemini
+│   ├── realtime_assistant.py  # Análise em tempo real durante atendimento
+│   ├── lead_classifier.py     # Pontuação automática de leads
+│   ├── journey_service.py     # Análise da jornada do cliente
+│   └── service.py             # Sumarização de atendimentos
+├── auth/               # Autenticação e autorização
+│   ├── jwt.py                 # Geração/validação de tokens
+│   ├── oauth_service.py       # Integração Google OAuth
+│   └── dependencies.py        # Dependências de auth FastAPI
+├── clients/            # Domínio de Clientes/Leads
+│   ├── models.py              # Modelos SQLAlchemy
+│   ├── timeline_models.py     # Eventos da jornada do cliente
+│   └── score_service.py       # Lógica de pontuação de leads
+├── attendances/        # Domínio de Atendimentos
+├── properties/         # Domínio de Imóveis
+├── visits/             # Domínio de Visitas
+├── sales/              # Domínio de Vendas
+├── losses/             # Domínio de Perdas e Análise
+├── users/              # Gestão de Usuários e Papéis
+├── config/             # Configurações da aplicação
+├── db/                 # Sessão do banco e modelos base
+└── main.py             # Ponto de entrada da aplicação
 ```
 
-## Como rodar localmente
+---
+
+## 🚀 Instalação
 
 ### Pré-requisitos
 
 - Python 3.11 ou superior
-- PostgreSQL instalado e rodando
-- Git (para clonar o repositório)
+- PostgreSQL 13+
+- Chave da API Google Gemini (para recursos de IA)
 
-### Passo a passo
-
-#### 1. Clone o repositório (se ainda não tiver)
+### Passo a Passo
 
 ```bash
+# Clone o repositório
 git clone <url-do-repositorio>
 cd Projeto-Tecnico-Astrocode-Backend
-```
 
-#### 2. Crie e ative um ambiente virtual
-
-**Windows:**
-```bash
+# Crie o ambiente virtual
 python -m venv .venv
+
+# Ative o ambiente
+# Windows:
 .venv\Scripts\activate
-```
-
-**Linux/Mac:**
-```bash
-python3 -m venv .venv
+# Linux/Mac:
 source .venv/bin/activate
-```
 
-**Verificação:** Você deve ver `(.venv)` no início do prompt do terminal.
-
-#### 3. Instale as dependências
-
-```bash
-pip install --upgrade pip
+# Instale as dependências
 pip install -e .
 ```
 
-**Importante:** Se você encontrar erros relacionados a `email-validator`, execute:
-```bash
-pip install email-validator
-```
-
-#### 4. Configure as variáveis de ambiente
+### Configuração
 
 Crie um arquivo `.env` na raiz do projeto:
 
-**Windows:**
-```bash
-copy .env.example .env
-```
-
-**Linux/Mac:**
-```bash
-cp .env.example .env
-```
-
-Edite o arquivo `.env` e configure pelo menos:
-
 ```env
-# Database
-DATABASE_URL=postgresql://usuario:senha@localhost:5432/real_estate_attendance
+# Banco de Dados
+DATABASE_URL=postgresql://usuario:senha@localhost:5432/real_estate_crm
 
-# JWT Authentication
-JWT_SECRET_KEY=your-secret-key-change-in-production-use-long-random-string
+# Autenticação JWT
+JWT_SECRET_KEY=sua-chave-secreta-mude-em-producao
 JWT_ALGORITHM=HS256
 JWT_EXPIRATION_HOURS=24
 
-# Google OAuth (opcional para começar)
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
+# IA (Google Gemini)
+GEMINI_API_KEY=sua-chave-gemini
+
+# Google OAuth (opcional)
+GOOGLE_CLIENT_ID=seu-google-client-id
+GOOGLE_CLIENT_SECRET=seu-google-client-secret
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+
+# Cloudinary (opcional, para upload de imagens)
+CLOUDINARY_CLOUD_NAME=seu-cloud-name
+CLOUDINARY_API_KEY=sua-api-key
+CLOUDINARY_API_SECRET=seu-api-secret
+
+# URL do Frontend
+FRONTEND_URL=http://localhost:5173
 ```
 
-#### 5. Configure o banco de dados PostgreSQL
-
-1. Acesse o PostgreSQL (via psql ou pgAdmin)
-2. Crie o banco de dados:
-
-```sql
-CREATE DATABASE real_estate_attendance;
-```
-
-3. Verifique se o usuário tem permissões:
-
-```sql
-GRANT ALL PRIVILEGES ON DATABASE real_estate_attendance TO seu_usuario;
-```
-
-#### 6. Aplique as migrations
+### Configurar Banco de Dados
 
 ```bash
+# Criar banco de dados
+psql -U postgres -c "CREATE DATABASE real_estate_crm;"
+
+# Executar migrações
 alembic upgrade head
 ```
 
-**Verificação:** Você deve ver mensagens de sucesso para cada migration aplicada.
-
-#### 7. Inicie o servidor
+### Executar o Servidor
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --port 8000
 ```
 
-**Verificação:** Você deve ver algo como:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process
-INFO:     Started server process
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-```
+A API estará disponível em:
+- **Base da API:** http://localhost:8000
+- **Documentação Interativa (Swagger):** http://localhost:8000/docs
+- **Documentação Alternativa (ReDoc):** http://localhost:8000/redoc
+- **Health Check:** http://localhost:8000/health
 
-#### 8. Teste se está funcionando
-
-Abra seu navegador e acesse:
-
-- **API Base:** http://localhost:8000
-- **Healthcheck:** http://localhost:8000/health
-- **Database Health:** http://localhost:8000/health/db
-- **Documentação Swagger:** http://localhost:8000/docs
-- **Documentação ReDoc:** http://localhost:8000/redoc
-
-**Teste rápido via terminal:**
+### Criar Primeiro Usuário
 
 ```bash
-# Healthcheck básico
-curl http://localhost:8000/health
+# Criar usuário gestor
+python scripts/create_manager.py --email admin@exemplo.com --password senha123 --name "Admin"
 
-# Deve retornar: {"status":"ok"}
-```
-
-### Solução de problemas comuns
-
-#### Erro: `ModuleNotFoundError: No module named 'email_validator'`
-
-**Solução:**
-```bash
-pip install email-validator
-```
-
-Ou reinstale todas as dependências:
-```bash
-pip install -e . --force-reinstall
-```
-
-#### Erro: `sqlalchemy.exc.OperationalError: could not connect to server`
-
-**Solução:**
-1. Verifique se o PostgreSQL está rodando
-2. Verifique se a `DATABASE_URL` no `.env` está correta
-3. Teste a conexão manualmente:
-   ```bash
-   psql -U seu_usuario -d real_estate_attendance
-   ```
-
-#### Erro: `alembic.util.exc.CommandError: Target database is not up to date`
-
-**Solução:**
-```bash
-# Verifique o status atual
-alembic current
-
-# Aplique todas as migrations pendentes
-alembic upgrade head
-```
-
-#### Erro: `ImportError: cannot import name 'X' from 'app.Y'`
-
-**Solução:**
-1. Verifique se todas as dependências estão instaladas:
-   ```bash
-   pip install -e . --force-reinstall
-   ```
-2. Verifique se o ambiente virtual está ativado
-3. Reinicie o servidor
-
-#### Aviso: `(trapped) error reading bcrypt version` ou `AttributeError: module 'bcrypt' has no attribute '__about__'`
-
-**Explicação:**
-Este é um aviso de compatibilidade entre `passlib` e versões mais recentes do `bcrypt`. O código funciona corretamente, mas o passlib tenta ler a versão do bcrypt de uma forma que não está disponível nas versões mais novas.
-
-**Status:**
-✅ **O warning foi suprimido no logging** - você não verá mais esse aviso nos logs
-✅ **Hash e verificação de senhas funcionam normalmente**
-✅ **OAuth Google está funcionando corretamente**
-
-**Nota:** O aviso não impede o funcionamento. Se ainda aparecer, é apenas informativo e pode ser ignorado.
-
-#### Porta 8000 já está em uso
-
-**Solução:**
-Use outra porta:
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
-```
-
-Ou encontre e encerre o processo usando a porta 8000:
-```bash
-# Windows
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
-
-# Linux/Mac
-lsof -ti:8000 | xargs kill
-```
-
-## Autenticação
-
-O sistema usa JWT (JSON Web Tokens) para autenticação.
-
-### Endpoints de Autenticação
-
-- `POST /auth/login` - Login com email e senha
-- `GET /auth/me` - Obter informações do usuário autenticado
-
-### Como Testar a Autenticação
-
-#### 1. Criar um usuário de teste
-
-**Opção A: Via script (recomendado)**
-
-```bash
+# Ou criar usuário de teste
 python scripts/create_test_user.py
 ```
 
-Ou com parâmetros customizados:
+---
+
+## 📚 Referência da API
+
+### Autenticação
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `POST` | `/auth/login` | Login com email/senha |
+| `GET` | `/auth/me` | Obter info do usuário atual |
+| `GET` | `/auth/google/login` | Iniciar fluxo Google OAuth |
+| `GET` | `/auth/google/callback` | Callback do OAuth |
+
+### Clientes
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `GET` | `/clients/` | Listar clientes com filtros |
+| `POST` | `/clients/` | Criar cliente (classificação automática por IA) |
+| `GET` | `/clients/{id}` | Obter detalhes do cliente |
+| `PUT` | `/clients/{id}` | Atualizar cliente |
+| `DELETE` | `/clients/{id}` | Excluir cliente e dados relacionados |
+
+### Atendimentos
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `GET` | `/attendances/` | Listar atendimentos |
+| `POST` | `/attendances/` | Criar atendimento (dispara análise IA) |
+| `GET` | `/attendances/{id}` | Obter atendimento com resumo IA |
+| `PUT` | `/attendances/{id}` | Atualizar atendimento |
+
+### Endpoints de IA
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `POST` | `/ai/realtime/analyze` | Análise de texto em tempo real |
+| `GET` | `/ai/journey/{client_id}` | Contexto da jornada do cliente por IA |
+| `POST` | `/ai/chat` | Assistente de IA conversacional |
+| `GET` | `/losses/patterns` | Análise de padrões de perda por IA |
+
+### Imóveis, Visitas, Vendas, Perdas
+
+Operações CRUD completas disponíveis. Veja `/docs` para referência completa.
+
+---
+
+## 🤖 Capacidades de IA
+
+### Como a IA Melhora Cada Interação
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   ATENDIMENTO CRIADO                         │
+│  "Cliente quer apartamento 3 quartos no centro,              │
+│   orçamento em torno de 500 mil, precisa mudar em 2 meses"  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    🤖 PROCESSAMENTO IA                       │
+├─────────────────────────────────────────────────────────────┤
+│  ✓ Resumo: "Interessado em apto centro, 3 quartos, 500k"   │
+│  ✓ Intenção: SOLICITAÇÃO_INFORMAÇÕES                        │
+│  ✓ Tipo de Interesse: COMPRA                                │
+│  ✓ Tipo de Imóvel: APARTAMENTO                              │
+│  ✓ Orçamento: R$ 450.000 - R$ 550.000                       │
+│  ✓ Urgência: ALTA (prazo de 2 meses)                        │
+│  ✓ Lead Score: 85/100                                        │
+│  ✓ Próximos Passos Sugeridos:                               │
+│    1. Agendar visitas em 3 imóveis compatíveis              │
+│    2. Discutir opções de financiamento                       │
+│  ✓ Imóveis Recomendados: [Apto 301, Apto 412, Apto 205]     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              PERFIL DO CLIENTE ATUALIZADO                    │
+│  • Status: NEW_LEAD → QUALIFIED                              │
+│  • Orçamento: R$ 450k - 550k                                 │
+│  • Cidade: Centro                                            │
+│  • Tipo de Imóvel: Apartamento                               │
+│  • Urgência: ALTA                                            │
+│  • Lead Score: 85                                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Assistente em Tempo Real
+
+Durante a criação do atendimento, a IA fornece sugestões ao vivo:
+
+- **Detecção de Informações** — Orçamento, localização, preferências de imóvel
+- **Sugestões de Perguntas** — "Perguntar sobre preferência de financiamento", "Esclarecer prazo de mudança"
+- **Match de Imóveis** — "3 imóveis compatíveis: clique para adicionar"
+- **Reconhecimento de Intenção** — Detecta quando cliente quer agendar visita ou negociar
+
+---
+
+## 🗃️ Migrações do Banco de Dados
 
 ```bash
-python scripts/create_test_user.py --email "admin@example.com" --password "minhasenha123" --name "Admin User"
+# Ver status atual das migrações
+alembic current
+
+# Aplicar todas as migrações pendentes
+alembic upgrade head
+
+# Criar nova migração (após alterar modelos)
+alembic revision --autogenerate -m "Descrição das alterações"
+
+# Reverter última migração
+alembic downgrade -1
+
+# Ver histórico de migrações
+alembic history
 ```
 
-**Opção B: Via Python interativo**
+---
 
-```python
-from app.db import SessionLocal
-from app.users.repository import UserRepository
-from app.users.schemas import UserCreate
-from app.auth.password import hash_password
+## 🔐 Segurança
 
-db = SessionLocal()
-user_repo = UserRepository(db)
+### Variáveis de Ambiente
 
-user_data = UserCreate(
-    email="test@example.com",
-    password="senha123456",
-    full_name="Usuário Teste"
-)
+| Variável | Obrigatória | Descrição |
+|----------|-------------|-----------|
+| `DATABASE_URL` | ✅ | String de conexão PostgreSQL |
+| `JWT_SECRET_KEY` | ✅ | Segredo para assinatura JWT (use valor aleatório forte) |
+| `GEMINI_API_KEY` | ⚠️ | Necessária para recursos de IA |
+| `GOOGLE_CLIENT_ID` | ❌ | Para Google OAuth |
+| `GOOGLE_CLIENT_SECRET` | ❌ | Para Google OAuth |
+| `CLOUDINARY_*` | ❌ | Para upload de imagens |
 
-hashed = hash_password(user_data.password)
-user = user_repo.create(user_data, hashed)
-print(f"Usuário criado: {user.email}")
-```
+### Controle de Acesso por Papéis
 
-#### 2. Fazer login
+| Papel | Permissões |
+|-------|------------|
+| **Gestor** | Acesso total, gestão de usuários, relatórios |
+| **Corretor** | Gerenciar clientes, atendimentos, imóveis, vendas |
+| **Atendente** | Criar atendimentos, visualizar clientes |
 
-**Via Swagger UI (http://localhost:8000/docs):**
+---
 
-1. Acesse `/docs`
-2. Encontre o endpoint `POST /auth/login`
-3. Clique em "Try it out"
-4. Preencha:
-   ```json
-   {
-     "email": "test@example.com",
-     "password": "senha123456"
-   }
-   ```
-5. Clique em "Execute"
-6. Copie o `access_token` retornado
-
-**Via cURL:**
+## 🧪 Testes
 
 ```bash
-curl -X POST "http://localhost:8000/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "test@example.com",
-    "password": "senha123456"
-  }'
+# Instalar dependências de desenvolvimento
+pip install -e ".[dev]"
+
+# Executar testes
+pytest
+
+# Executar com cobertura
+pytest --cov=app
 ```
 
-**Resposta esperada:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer"
-}
-```
+---
 
-#### 3. Usar o token para acessar rotas protegidas
+## 📖 Documentação Adicional
 
-**Via Swagger UI:**
+- [Guia de Autenticação](docs/AUTHENTICATION.md) — Documentação detalhada do fluxo de auth
+- [Vinculação de Usuários OAuth](docs/OAUTH_USER_LINKING.md) — Como contas OAuth são vinculadas
+- [Documentação do Sistema](docs/DOCUMENTACAO_SISTEMA.md) — Fluxo completo do sistema
 
-1. Clique no botão "Authorize" no topo da página
-2. Cole o token no campo "Value" (sem a palavra "Bearer")
-3. Clique em "Authorize"
-4. Agora você pode testar endpoints protegidos como `GET /auth/me` ou `GET /health/protected`
+---
 
-**Via cURL:**
+## 🛠️ Solução de Problemas
 
+<details>
+<summary><strong>Erro de conexão com banco de dados</strong></summary>
+
+Verifique se o PostgreSQL está rodando e se `DATABASE_URL` está correta:
 ```bash
-# Obter informações do usuário autenticado
-curl -X GET "http://localhost:8000/auth/me" \
-  -H "Authorization: Bearer SEU_TOKEN_AQUI"
-
-# Testar endpoint protegido
-curl -X GET "http://localhost:8000/health/protected" \
-  -H "Authorization: Bearer SEU_TOKEN_AQUI"
+psql -U seu_usuario -d real_estate_crm -c "SELECT 1;"
 ```
+</details>
 
-#### 4. Testar proteção de rotas
+<details>
+<summary><strong>ModuleNotFoundError</strong></summary>
 
-**Sem token (deve retornar 401):**
+Certifique-se de que o ambiente virtual está ativado e dependências instaladas:
 ```bash
-curl -X GET "http://localhost:8000/health/protected"
+source .venv/bin/activate  # ou .venv\Scripts\activate no Windows
+pip install -e . --force-reinstall
 ```
+</details>
 
-**Com token inválido (deve retornar 401):**
+<details>
+<summary><strong>Recursos de IA não funcionando</strong></summary>
+
+Verifique se `GEMINI_API_KEY` está definida no `.env` e é válida. O sistema fará fallback para análise básica se a IA estiver indisponível.
+</details>
+
+<details>
+<summary><strong>Porta já em uso</strong></summary>
+
+Use uma porta diferente:
 ```bash
-curl -X GET "http://localhost:8000/health/protected" \
-  -H "Authorization: Bearer token_invalido"
+uvicorn app.main:app --reload --port 8001
 ```
+</details>
 
-**Com token válido (deve retornar 200):**
-```bash
-curl -X GET "http://localhost:8000/health/protected" \
-  -H "Authorization: Bearer SEU_TOKEN_VALIDO"
-```
+---
 
-### Variáveis de Ambiente para JWT
+<div align="center">
 
-Adicione ao seu `.env`:
+**Desenvolvido como Desafio Técnico para a vaga na Astrocode**
 
-```env
-JWT_SECRET_KEY=your-secret-key-change-in-production-use-long-random-string
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_HOURS=24
-```
+[⬆ Voltar ao topo](#desafio-técnico---astrocode)
 
-**Importante:** Em produção, use uma chave secreta forte e aleatória!
-
-## Google OAuth
-
-O sistema suporta autenticação via Google OAuth2.
-
-### Endpoints OAuth
-
-- `GET /auth/google/login` - Inicia o fluxo OAuth (redireciona para Google)
-- `GET /auth/google/callback` - Processa o callback do Google
-
-### Como Configurar Google OAuth
-
-#### 1. Criar credenciais no Google Cloud Console
-
-1. Acesse: https://console.cloud.google.com/
-2. Crie um projeto ou selecione um existente
-3. Ative a API "Google+ API" ou "Google Identity"
-4. Vá em **Credenciais** → **Criar credenciais** → **ID do cliente OAuth 2.0**
-5. Configure:
-   - **Tipo:** Aplicativo Web
-   - **Nome:** Real Estate Attendance Backend (ou qualquer nome)
-   - **URIs de redirecionamento autorizados:** 
-     ```
-     http://localhost:8000/auth/google/callback
-     ```
-     ⚠️ **IMPORTANTE:** A URI deve ser EXATAMENTE esta (incluindo protocolo, porta e path)
-
-6. Copie o **Client ID** e **Client Secret**
-
-#### 2. Configurar no `.env`
-
-Adicione ao seu arquivo `.env`:
-
-```env
-GOOGLE_CLIENT_ID=seu-client-id-aqui.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=seu-client-secret-aqui
-GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
-```
-
-⚠️ **CRÍTICO:** A `GOOGLE_REDIRECT_URI` deve corresponder **EXATAMENTE** à URI configurada no Google Cloud Console, incluindo:
-- Protocolo (`http://` ou `https://`)
-- Domínio completo
-- Porta (se aplicável)
-- Path completo (`/auth/google/callback`)
-- Sem trailing slash
-
-#### 3. Testar OAuth
-
-1. Acesse: `http://localhost:8000/auth/google/login`
-2. Você será redirecionado para o Google
-3. Faça login e autorize o acesso
-4. Você será redirecionado de volta e receberá um token JWT
-
-### Erro: `redirect_uri_mismatch`
-
-Se você receber o erro `{"detail":"OAuth authentication failed: redirect_uri_mismatch: Bad Request"}`, significa que a URI de redirecionamento não corresponde exatamente à configurada no Google Cloud Console.
-
-**Solução:**
-
-1. Verifique a URI no Google Cloud Console:
-   - Vá em **Credenciais** → Seu OAuth 2.0 Client ID
-   - Verifique a seção **URIs de redirecionamento autorizados**
-   - Deve conter exatamente: `http://localhost:8000/auth/google/callback`
-
-2. Verifique a URI no seu `.env`:
-   ```env
-   GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
-   ```
-
-3. Certifique-se de que:
-   - Protocolo está correto (`http://` para localhost, `https://` para produção)
-   - Não há trailing slash (`/auth/google/callback` e não `/auth/google/callback/`)
-   - Porta está correta (`8000` se for o padrão)
-   - Path está correto (`/auth/google/callback`)
-
-4. Após alterar no Google Cloud Console, pode levar alguns minutos para propagar
-
-5. Reinicie a aplicação após alterar o `.env`
-
-**Exemplo de URIs válidas:**
-- ✅ `http://localhost:8000/auth/google/callback`
-- ✅ `https://seusite.com/auth/google/callback`
-- ❌ `http://localhost:8000/auth/google/callback/` (trailing slash)
-- ❌ `http://127.0.0.1:8000/auth/google/callback` (IP diferente)
-- ❌ `https://localhost:8000/auth/google/callback` (protocolo diferente)
-
-## Migrations
-
-O projeto usa Alembic para versionamento do banco de dados.
-
-### Comandos úteis
-
-- **Criar nova migration:**
-  ```bash
-  alembic revision --autogenerate -m "Description"
-  ```
-
-- **Aplicar migrations:**
-  ```bash
-  alembic upgrade head
-  ```
-
-- **Reverter última migration:**
-  ```bash
-  alembic downgrade -1
-  ```
-
-- **Ver histórico:**
-  ```bash
-  alembic history
-  ```
-
-- **Ver status atual:**
-  ```bash
-  alembic current
-  ```
-
-## Variáveis de ambiente
-
-Veja `.env.example` para a lista de variáveis disponíveis.
+</div>
