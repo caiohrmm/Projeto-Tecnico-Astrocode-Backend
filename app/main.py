@@ -15,6 +15,7 @@ from app.clients.routes import router as clients_router
 from app.config.settings import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.properties.routes import router as properties_router
+from app.sales.routes import router as sales_router
 from app.users.routes import router as users_router
 from app.visits.routes import router as visits_router
 
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_journey_router)
     app.include_router(clients_router)
     app.include_router(properties_router)
+    app.include_router(sales_router)
     app.include_router(visits_router)
     app.include_router(users_router)
 
