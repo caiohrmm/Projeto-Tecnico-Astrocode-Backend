@@ -450,13 +450,14 @@ class AttendanceRepository:
         Update client with information detected by AI summary.
 
         This method applies AI-detected information to the client record.
-        It respects existing values and only updates when AI provides new information.
+        The AI has authority to update client fields based on attendance analysis.
 
         Args:
             client_id: Client UUID
             ai_summary: AI summary instance
         """
         from app.clients.schemas import ClientUpdate
+        from app.clients.models import ClientStatus
         from datetime import datetime
 
         client_repo = ClientRepository(self.db)
@@ -467,46 +468,55 @@ class AttendanceRepository:
 
         # Prepare update data from AI summary
         update_data = {}
+        old_values = {}  # Track changes for timeline
 
-        # Update interest type if detected and not already set
-        if ai_summary.interest_type_detected and not client.current_interest_type:
-            update_data["current_interest_type"] = ai_summary.interest_type_detected
+        # Update interest type if detected (always update if AI detects)
+        if ai_summary.interest_type_detected:
+            if client.current_interest_type != ai_summary.interest_type_detected:
+                old_values["current_interest_type"] = client.current_interest_type
+                update_data["current_interest_type"] = ai_summary.interest_type_detected
 
         # Update property type if detected in key_points
         if ai_summary.key_points and isinstance(ai_summary.key_points, dict):
             detected_prop_type = ai_summary.key_points.get("property_type")
-            if detected_prop_type and not client.current_property_type:
+            if detected_prop_type and client.current_property_type != detected_prop_type:
+                old_values["current_property_type"] = client.current_property_type
                 update_data["current_property_type"] = detected_prop_type
 
         # Update city interest if detected in key_points
         if ai_summary.key_points and isinstance(ai_summary.key_points, dict):
             detected_city = ai_summary.key_points.get("city")
-            if detected_city and not client.current_city_interest:
+            if detected_city and client.current_city_interest != detected_city:
+                old_values["current_city_interest"] = client.current_city_interest
                 update_data["current_city_interest"] = detected_city
 
-        # Update budget if detected (only if not already set or AI provides more specific range)
-        if ai_summary.budget_min_detected:
-            if not client.current_budget_min or ai_summary.budget_min_detected > client.current_budget_min:
+        # Update budget if detected (always update - AI has latest info)
+        if ai_summary.budget_min_detected is not None:
+            if client.current_budget_min != ai_summary.budget_min_detected:
+                old_values["current_budget_min"] = float(client.current_budget_min) if client.current_budget_min else None
                 update_data["current_budget_min"] = ai_summary.budget_min_detected
-        if ai_summary.budget_max_detected:
-            if not client.current_budget_max or ai_summary.budget_max_detected < client.current_budget_max:
+        if ai_summary.budget_max_detected is not None:
+            if client.current_budget_max != ai_summary.budget_max_detected:
+                old_values["current_budget_max"] = float(client.current_budget_max) if client.current_budget_max else None
                 update_data["current_budget_max"] = ai_summary.budget_max_detected
 
-        # Update urgency level if detected and higher than current
+        # Update urgency level if detected (always update - AI has latest info)
         if ai_summary.urgency_level_detected:
-            urgency_order = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "IMMEDIATE": 4}
-            current_urgency_value = urgency_order.get(client.current_urgency_level or "LOW", 0)
-            new_urgency_value = urgency_order.get(ai_summary.urgency_level_detected, 0)
-            if new_urgency_value > current_urgency_value:
+            if client.current_urgency_level != ai_summary.urgency_level_detected:
+                old_values["current_urgency_level"] = client.current_urgency_level
                 update_data["current_urgency_level"] = ai_summary.urgency_level_detected
 
-        # Update lead score if suggested (use AI suggestion if higher than current)
+        # Update lead score if suggested (always update - AI has authority)
         if ai_summary.lead_score_suggested is not None:
-            current_score = client.current_lead_score or 0
-            if ai_summary.lead_score_suggested > current_score:
-                # AI suggestion will be recalculated by LeadScoreService, but we can use it as reference
-                # The actual score will be recalculated based on all factors
-                pass  # Lead score is recalculated automatically in ClientRepository.update
+            if client.current_lead_score != ai_summary.lead_score_suggested:
+                old_values["current_lead_score"] = client.current_lead_score
+                update_data["current_lead_score"] = ai_summary.lead_score_suggested
+
+        # Update current_status based on detected intent and context
+        new_status = self._determine_client_status_from_ai(client, ai_summary)
+        if new_status and client.current_status != new_status:
+            old_values["current_status"] = client.current_status.value if client.current_status else None
+            update_data["current_status"] = new_status
 
         # Update last_contact_at
         update_data["last_contact_at"] = datetime.utcnow()
@@ -514,6 +524,94 @@ class AttendanceRepository:
         if update_data:
             client_update = ClientUpdate(**update_data)
             client_repo.update(client, client_update)
+            
+            # Add timeline event for AI-driven client update
+            if old_values:
+                changes_description = []
+                for field, old_val in old_values.items():
+                    new_val = update_data.get(field)
+                    field_labels = {
+                        "current_interest_type": "Tipo de Interesse",
+                        "current_property_type": "Tipo de Imóvel",
+                        "current_city_interest": "Cidade de Interesse",
+                        "current_budget_min": "Orçamento Mínimo",
+                        "current_budget_max": "Orçamento Máximo",
+                        "current_urgency_level": "Urgência",
+                        "current_lead_score": "Lead Score",
+                        "current_status": "Status",
+                    }
+                    label = field_labels.get(field, field)
+                    changes_description.append(f"{label}: {old_val or 'N/A'} → {new_val}")
+                
+                self._add_timeline_event(
+                    client_id=client_id,
+                    event_type=TimelineEventType.CLIENT_UPDATED_BY_AI,
+                    title="IA atualizou perfil do cliente",
+                    description="; ".join(changes_description),
+                    event_data={
+                        "old_values": old_values,
+                        "new_values": {k: v for k, v in update_data.items() if k in old_values},
+                        "confidence": ai_summary.confidence_score,
+                    },
+                    ai_generated=True,
+                    importance=4,
+                )
+
+    def _determine_client_status_from_ai(self, client, ai_summary: AISummary) -> str | None:
+        """
+        Determine client status based on AI-detected intent and context.
+        
+        Status progression logic:
+        - NEW_LEAD → CONTACTED (after first attendance)
+        - CONTACTED → QUALIFIED (if interest/budget detected)
+        - QUALIFIED → VISIT_SCHEDULED (if visit intent detected)
+        - Any → NEGOTIATING (if price negotiation detected)
+        """
+        from app.clients.models import ClientStatus
+        
+        current = client.current_status
+        intent = ai_summary.detected_intent.value if ai_summary.detected_intent else None
+        
+        # Map of allowed status transitions (from -> list of possible next statuses)
+        status_order = {
+            ClientStatus.NEW_LEAD: 1,
+            ClientStatus.CONTACTED: 2,
+            ClientStatus.QUALIFIED: 3,
+            ClientStatus.VISIT_SCHEDULED: 4,
+            ClientStatus.VISITING: 5,
+            ClientStatus.PROPOSAL_SENT: 6,
+            ClientStatus.NEGOTIATING: 7,
+            ClientStatus.WON: 10,
+            ClientStatus.LOST: 10,
+            ClientStatus.INACTIVE: 0,
+        }
+        
+        current_order = status_order.get(current, 0)
+        
+        # If NEW_LEAD and has attendance, move to CONTACTED
+        if current == ClientStatus.NEW_LEAD or current is None:
+            return ClientStatus.CONTACTED.value
+        
+        # If CONTACTED and we detected interest type or budget, move to QUALIFIED
+        if current == ClientStatus.CONTACTED:
+            if ai_summary.interest_type_detected or ai_summary.budget_min_detected or ai_summary.budget_max_detected:
+                return ClientStatus.QUALIFIED.value
+        
+        # If intent is SCHEDULE_VISIT, move to VISIT_SCHEDULED
+        if intent == "SCHEDULE_VISIT" and current_order < status_order[ClientStatus.VISIT_SCHEDULED]:
+            return ClientStatus.VISIT_SCHEDULED.value
+        
+        # If intent is PRICE_NEGOTIATION, move to NEGOTIATING
+        if intent == "PRICE_NEGOTIATION" and current_order < status_order[ClientStatus.NEGOTIATING]:
+            return ClientStatus.NEGOTIATING.value
+        
+        # If sentiment is very negative or intent is complaint, might indicate risk
+        sentiment = ai_summary.sentiment.value if ai_summary.sentiment else None
+        if sentiment == "VERY_NEGATIVE" and current_order >= status_order[ClientStatus.NEGOTIATING]:
+            # Don't automatically set to LOST, but flag concern
+            pass
+        
+        return None  # No status change
 
     def _create_visit_from_attendance(self, attendance: Attendance) -> None:
         """
