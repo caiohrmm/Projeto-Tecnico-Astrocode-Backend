@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.ai.routes import router as ai_summaries_router
 from app.ai.chat_router import router as ai_chat_router, shutdown_executor
 from app.ai.journey_routes import router as ai_journey_router
-from app.ai.realtime_routes import router as ai_realtime_router
 from app.api.routes import health
 from app.attendances.routes import router as attendances_router
 from app.auth.routes import router as auth_router
@@ -74,7 +73,6 @@ def create_app() -> FastAPI:
     app.include_router(ai_summaries_router)
     app.include_router(ai_chat_router)
     app.include_router(ai_journey_router)
-    app.include_router(ai_realtime_router)
     app.include_router(clients_router)
     app.include_router(losses_router)
     app.include_router(properties_router)
