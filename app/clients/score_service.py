@@ -17,7 +17,6 @@ class LeadScoreService:
         - Funnel status (0-100 points): Higher status = higher score
         - Urgency level (0-30 points): Higher urgency = higher score
         - Interest data completeness (0-25 points): More data = higher score
-        - Agent assignment (0-5 points): Assigned agent = higher score
         - Contact history (0-11 points): More contact data = higher score
 
         Args:
@@ -40,11 +39,7 @@ class LeadScoreService:
         interest_score = LeadScoreService._get_interest_data_score(client)
         score += interest_score
 
-        # 4. Agent Assignment (0-5 points)
-        if client.assigned_agent_id is not None:
-            score += 5
-
-        # 5. Contact History (0-11 points)
+        # 4. Contact History (0-11 points)
         contact_score = LeadScoreService._get_contact_history_score(client)
         score += contact_score
 

@@ -71,12 +71,6 @@ class ClientCreate(ClientBase):
         description="Urgency level (LOW, MEDIUM, HIGH, IMMEDIATE)",
     )
 
-    # Commercial Assignment (optional)
-    assigned_agent_id: uuid.UUID | None = Field(
-        None,
-        description="UUID of assigned real estate agent (User)",
-    )
-
     # Client Interest (optional)
     current_interest_type: InterestType | None = Field(
         None,
@@ -152,9 +146,6 @@ class ClientUpdate(BaseModel):
         description="Lead score (calculated automatically, ignored if provided)",
     )
     current_urgency_level: UrgencyLevel | None = None
-
-    # Commercial Assignment
-    assigned_agent_id: uuid.UUID | None = None
 
     # Client Interest
     current_interest_type: InterestType | None = None

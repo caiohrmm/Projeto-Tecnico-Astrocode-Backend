@@ -21,41 +21,8 @@ from app.clients.schemas import (
 )
 from app.db import get_db
 from app.users.models import User
-from app.users.repository import UserRepository
 
 router = APIRouter(prefix="/clients", tags=["clients"])
-
-
-def _validate_agent_is_corretor(assigned_agent_id: uuid.UUID | None, db: Session) -> None:
-    """
-    Validate that assigned_agent_id belongs to a user with 'corretor' role.
-
-    Args:
-        assigned_agent_id: UUID of the agent to validate
-        db: Database session
-
-    Raises:
-        HTTPException: If agent_id is provided but user doesn't have 'corretor' role
-    """
-    if assigned_agent_id is None:
-        return  # No validation needed if no agent is assigned
-
-    user_repo = UserRepository(db)
-    agent = user_repo.get_by_id(assigned_agent_id)
-
-    if not agent:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with ID {assigned_agent_id} not found",
-        )
-
-    # Check if user has 'corretor' role
-    role_names = [role.name for role in agent.roles]
-    if "corretor" not in role_names:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"User {assigned_agent_id} does not have 'corretor' role. Only users with 'corretor' role can be assigned as agents.",
-        )
 
 
 @router.post(
@@ -99,9 +66,6 @@ def create_client(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Client with this email already exists",
             )
-
-    # Validate assigned_agent_id if provided
-    _validate_agent_is_corretor(client_data.assigned_agent_id, db)
 
     # AI Classification (if enabled and not already provided)
     classification: LeadClassification | None = None
@@ -271,10 +235,6 @@ def update_client(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Client with this email already exists",
             )
-
-    # Validate assigned_agent_id if being updated
-    if client_data.assigned_agent_id is not None:
-        _validate_agent_is_corretor(client_data.assigned_agent_id, db)
 
     updated_client = repository.update(client, client_data)
     return ClientResponse.model_validate(updated_client)

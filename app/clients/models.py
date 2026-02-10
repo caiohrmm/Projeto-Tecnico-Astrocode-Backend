@@ -79,9 +79,6 @@ class Client(Base):
         current_lead_score: Lead score from 0 to 100 for prioritization
         current_urgency_level: Urgency level (LOW, MEDIUM, HIGH, IMMEDIATE)
         
-        # Commercial Assignment
-        assigned_agent_id: Foreign key to User (assigned real estate agent)
-        
         # Client Interest
         current_interest_type: Type of interest (BUY, RENT, SELL, INVEST)
         current_property_type: Property type of interest
@@ -150,14 +147,6 @@ class Client(Base):
         index=True,
     )
 
-    # Commercial Assignment
-    assigned_agent_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-
     # Client Interest
     current_interest_type: Mapped[InterestType | None] = mapped_column(
         Enum(InterestType, native_enum=False, length=20),
@@ -220,13 +209,6 @@ class Client(Base):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
         nullable=False,
-    )
-
-    # Relationships
-    assigned_agent: Mapped["User"] = relationship(
-        "User",
-        foreign_keys=[assigned_agent_id],
-        lazy="selectin",
     )
 
     def __repr__(self) -> str:
