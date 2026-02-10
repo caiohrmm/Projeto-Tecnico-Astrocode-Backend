@@ -79,6 +79,26 @@ class PropertyBase(BaseModel):
         if v is not None:
             return v.upper()
         return v
+    
+    @field_validator("assigned_agent_id", mode="before")
+    @classmethod
+    def validate_assigned_agent_id(cls, v) -> uuid.UUID | None:
+        """Convert empty strings and invalid values to None."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            # Convert empty string or "null" string to None
+            if v.strip() == "" or v.strip().lower() == "null":
+                return None
+            # Try to parse as UUID
+            try:
+                return uuid.UUID(v)
+            except (ValueError, AttributeError):
+                return None
+        # If it's already a UUID, return as is
+        if isinstance(v, uuid.UUID):
+            return v
+        return None
 
 
 class PropertyCreate(PropertyBase):
@@ -156,6 +176,26 @@ class PropertyUpdate(BaseModel):
         if v is not None:
             return v.upper()
         return v
+    
+    @field_validator("assigned_agent_id", mode="before")
+    @classmethod
+    def validate_assigned_agent_id(cls, v) -> uuid.UUID | None:
+        """Convert empty strings and invalid values to None."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            # Convert empty string or "null" string to None
+            if v.strip() == "" or v.strip().lower() == "null":
+                return None
+            # Try to parse as UUID
+            try:
+                return uuid.UUID(v)
+            except (ValueError, AttributeError):
+                return None
+        # If it's already a UUID, return as is
+        if isinstance(v, uuid.UUID):
+            return v
+        return None
 
 
 class PropertyResponse(PropertyBase):
