@@ -34,7 +34,15 @@ class ClientRepository:
             Created client instance
         """
         # Extract all fields from client_data, including optional ones
-        client_dict = client_data.model_dump(exclude_unset=False)
+        # NOTE: Some fields exist apenas no schema (não são colunas da tabela)
+        # e não podem ser passados para o modelo SQLAlchemy.
+        client_dict = client_data.model_dump(
+            exclude_unset=False,
+            exclude={
+                "initial_message",       # usado só para classificação por IA
+                "use_ai_classification", # flag de controle da IA, não persiste
+            },
+        )
         
         # Set default status if not provided
         from app.clients.models import ClientStatus
