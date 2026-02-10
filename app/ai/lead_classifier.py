@@ -18,6 +18,11 @@ class LeadClassification(BaseModel):
     property_type: Optional[PropertyType] = None
     suggested_status: ClientStatus = ClientStatus.NEW_LEAD
     
+    # Extracted information
+    budget_min: Optional[float] = None  # Minimum budget in BRL
+    budget_max: Optional[float] = None  # Maximum budget in BRL
+    city_interest: Optional[str] = None  # City where client wants property
+    
     # AI reasoning
     classification_reason: str
     key_indicators: list[str]
@@ -194,12 +199,21 @@ TIPOS DE IMÓVEL:
 - COMMERCIAL: Comercial
 - RURAL: Rural
 
+IMPORTANTE - EXTRAÇÃO DE DADOS:
+- Se a mensagem mencionar orçamento/preço, extraia os valores em reais (R$) e retorne em "budget_min" e "budget_max"
+- Se mencionar localização/cidade, extraia o nome da cidade e retorne em "city_interest"
+- Exemplos de orçamento: "500 mil" = 500000, "600.000" = 600000, "entre 500 e 600 mil" = budget_min: 500000, budget_max: 600000
+- Exemplos de cidade: "São Paulo", "Rio de Janeiro", "centro de São Paulo" = "São Paulo"
+
 Responda SEMPRE em JSON válido no formato:
 {
     "lead_score": número de 0-100,
     "urgency_level": "LOW" | "MEDIUM" | "HIGH" | "IMMEDIATE",
     "interest_type": "BUY" | "RENT" | "SELL" | "INVEST" | null,
     "property_type": "HOUSE" | "APARTMENT" | "LAND" | "COMMERCIAL" | "RURAL" | null,
+    "budget_min": número em reais ou null,
+    "budget_max": número em reais ou null,
+    "city_interest": "nome da cidade" ou null,
     "classification_reason": "Explicação breve da classificação",
     "key_indicators": ["indicador 1", "indicador 2"],
     "recommended_actions": ["ação 1", "ação 2"],
@@ -294,12 +308,33 @@ DADOS DO LEAD:
                     }
                     property_type = property_map.get(data["property_type"])
                 
+                # Extract budget and city
+                budget_min = data.get("budget_min")
+                budget_max = data.get("budget_max")
+                city_interest = data.get("city_interest")
+                
+                # Convert budget to float if provided
+                if budget_min is not None:
+                    try:
+                        budget_min = float(budget_min)
+                    except (ValueError, TypeError):
+                        budget_min = None
+                
+                if budget_max is not None:
+                    try:
+                        budget_max = float(budget_max)
+                    except (ValueError, TypeError):
+                        budget_max = None
+                
                 return LeadClassification(
                     lead_score=min(100, max(0, int(data.get("lead_score", 30)))),
                     urgency_level=urgency,
                     interest_type=interest_type,
                     property_type=property_type,
                     suggested_status=ClientStatus.NEW_LEAD,
+                    budget_min=budget_min,
+                    budget_max=budget_max,
+                    city_interest=city_interest,
                     classification_reason=data.get("classification_reason", "Classificação automática"),
                     key_indicators=data.get("key_indicators", []),
                     recommended_actions=data.get("recommended_actions", []),

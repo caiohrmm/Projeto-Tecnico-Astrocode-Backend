@@ -1,6 +1,7 @@
 """Client routes for CRUD operations."""
 
 import uuid
+from decimal import Decimal
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -129,6 +130,16 @@ def create_client(
         
         if client_data.current_status is None:
             client_data.current_status = classification.suggested_status
+        
+        # Apply extracted budget and city (always update if AI extracted them)
+        if classification.budget_min is not None:
+            client_data.current_budget_min = Decimal(str(classification.budget_min))
+        
+        if classification.budget_max is not None:
+            client_data.current_budget_max = Decimal(str(classification.budget_max))
+        
+        if classification.city_interest:
+            client_data.current_city_interest = classification.city_interest
 
     # Create client
     client = repository.create(client_data)

@@ -203,6 +203,11 @@ class Client(Base):
         Text,
         nullable=True,
     )
+    initial_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="First message from the client (used for AI classification)",
+    )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

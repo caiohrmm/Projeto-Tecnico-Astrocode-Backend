@@ -211,6 +211,10 @@ class ClientResponse(ClientBase):
     last_contact_at: datetime | None = None
     next_follow_up_at: datetime | None = None
     summary_notes: str | None = None
+    initial_message: str | None = Field(
+        None,
+        description="First message from the client",
+    )
 
     # Timestamps
     created_at: datetime

@@ -39,7 +39,6 @@ class ClientRepository:
         client_dict = client_data.model_dump(
             exclude_unset=False,
             exclude={
-                "initial_message",       # usado só para classificação por IA
                 "use_ai_classification", # flag de controle da IA, não persiste
             },
         )
