@@ -205,6 +205,16 @@ IMPORTANTE - EXTRAÇÃO DE DADOS:
 - Exemplos de orçamento: "500 mil" = 500000, "600.000" = 600000, "entre 500 e 600 mil" = budget_min: 500000, budget_max: 600000
 - Exemplos de cidade: "São Paulo", "Rio de Janeiro", "centro de São Paulo" = "São Paulo"
 
+STATUS SUGERIDO (suggested_status):
+Baseado no lead_score, urgência e informações disponíveis, sugira o status inicial mais apropriado:
+- NEW_LEAD: Lead frio (score 0-25), sem informações claras
+- CONTACTED: Lead já foi contatado ou tem informações básicas (score 26-40)
+- QUALIFIED: Lead quente com interesse claro, orçamento definido, urgência média/alta (score 51-75)
+- QUALIFIED: Lead muito quente com todas informações, urgência alta/imediata, pré-aprovação (score 76-100)
+- Use QUALIFIED quando: orçamento definido + tipo de imóvel + localização + urgência MEDIUM/HIGH/IMMEDIATE
+- Use CONTACTED quando: tem mensagem inicial detalhada mas falta alguma informação importante
+- Use NEW_LEAD apenas quando: informações muito limitadas, apenas dados básicos
+
 Responda SEMPRE em JSON válido no formato:
 {
     "lead_score": número de 0-100,
@@ -214,6 +224,7 @@ Responda SEMPRE em JSON válido no formato:
     "budget_min": número em reais ou null,
     "budget_max": número em reais ou null,
     "city_interest": "nome da cidade" ou null,
+    "suggested_status": "NEW_LEAD" | "CONTACTED" | "QUALIFIED" | "VISIT_SCHEDULED" | "VISITING" | "PROPOSAL_SENT" | "NEGOTIATING" | "WON" | "LOST" | "INACTIVE",
     "classification_reason": "Explicação breve da classificação",
     "key_indicators": ["indicador 1", "indicador 2"],
     "recommended_actions": ["ação 1", "ação 2"],
@@ -326,12 +337,38 @@ DADOS DO LEAD:
                     except (ValueError, TypeError):
                         budget_max = None
                 
+                # Parse suggested_status
+                suggested_status = ClientStatus.NEW_LEAD  # Default
+                if data.get("suggested_status"):
+                    status_map = {
+                        "NEW_LEAD": ClientStatus.NEW_LEAD,
+                        "CONTACTED": ClientStatus.CONTACTED,
+                        "QUALIFIED": ClientStatus.QUALIFIED,
+                        "VISIT_SCHEDULED": ClientStatus.VISIT_SCHEDULED,
+                        "VISITING": ClientStatus.VISITING,
+                        "PROPOSAL_SENT": ClientStatus.PROPOSAL_SENT,
+                        "NEGOTIATING": ClientStatus.NEGOTIATING,
+                        "WON": ClientStatus.WON,
+                        "LOST": ClientStatus.LOST,
+                        "INACTIVE": ClientStatus.INACTIVE,
+                    }
+                    suggested_status = status_map.get(data["suggested_status"], ClientStatus.NEW_LEAD)
+                else:
+                    # Auto-determine status based on lead_score and urgency if not provided
+                    lead_score = min(100, max(0, int(data.get("lead_score", 30))))
+                    if lead_score >= 76 or urgency == UrgencyLevel.IMMEDIATE:
+                        suggested_status = ClientStatus.QUALIFIED
+                    elif lead_score >= 51 or urgency == UrgencyLevel.HIGH:
+                        suggested_status = ClientStatus.QUALIFIED
+                    elif lead_score >= 26 or urgency == UrgencyLevel.MEDIUM:
+                        suggested_status = ClientStatus.CONTACTED
+                
                 return LeadClassification(
                     lead_score=min(100, max(0, int(data.get("lead_score", 30)))),
                     urgency_level=urgency,
                     interest_type=interest_type,
                     property_type=property_type,
-                    suggested_status=ClientStatus.NEW_LEAD,
+                    suggested_status=suggested_status,
                     budget_min=budget_min,
                     budget_max=budget_max,
                     city_interest=city_interest,

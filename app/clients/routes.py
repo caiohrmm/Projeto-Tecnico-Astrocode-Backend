@@ -92,7 +92,9 @@ def create_client(
         if client_data.current_property_type is None and classification.property_type:
             client_data.current_property_type = classification.property_type
         
-        if client_data.current_status is None:
+        # Always apply suggested_status if AI classification is enabled
+        # This ensures AI can promote leads to better statuses based on initial message
+        if classification.suggested_status:
             client_data.current_status = classification.suggested_status
         
         # Apply extracted budget and city (always update if AI extracted them)
