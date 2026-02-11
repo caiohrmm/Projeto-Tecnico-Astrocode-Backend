@@ -54,11 +54,21 @@ def create_attendance(
     current_user: User = Depends(get_current_active_user),
 ) -> AttendanceResponse:
     """
-    Create a new attendance.
+    Create a new attendance or update an existing active one.
 
-    Duration is calculated automatically when ended_at is provided.
-    If updated_client_status is provided, client status will be updated.
-    If scheduled_visit_at is provided, a visit will be created automatically.
+    **Cycle Logic:**
+    - If the client has an active attendance with the same objective, the new content
+      will be accumulated into the existing attendance (conversation continues).
+    - If the objective has changed significantly, the previous active attendance will be
+      closed (ABANDONED) and a new attendance cycle will be created.
+    - If no objective is provided, it will be auto-detected from the raw_content.
+
+    **Automatic Behaviors:**
+    - Duration is calculated automatically when ended_at is provided.
+    - AI summary is generated automatically for new attendances.
+    - If updated_client_status is provided, client status will be updated.
+    - If scheduled_visit_at is provided, a visit will be created automatically.
+    - Client state is derived from AI signals with anti-flip logic.
 
     Args:
         attendance_data: Attendance creation data
@@ -66,7 +76,7 @@ def create_attendance(
         current_user: Current authenticated user
 
     Returns:
-        Created attendance response
+        Created or updated attendance response
     """
     # Validate agent_id must be a corretor
     _validate_agent_is_corretor(attendance_data.agent_id, db)
@@ -137,6 +147,41 @@ def list_attendances(
     return result
 
 
+@router.get("/active/client/{client_id}", response_model=AttendanceResponse)
+def get_active_attendance_by_client(
+    client_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> AttendanceResponse:
+    """
+    Get the active attendance for a specific client.
+
+    This endpoint is useful for checking if a client has an ongoing attendance cycle
+    before creating a new one. The system ensures only one ACTIVE attendance per client.
+
+    Args:
+        client_id: Client UUID
+        db: Database session
+        current_user: Current authenticated user
+
+    Returns:
+        Active attendance response
+
+    Raises:
+        HTTPException: If no active attendance exists (404)
+    """
+    attendance_repo = AttendanceRepository(db)
+    attendance = attendance_repo.get_active_attendance_by_client(client_id)
+
+    if not attendance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No active attendance found for client {client_id}",
+        )
+
+    return AttendanceResponse.model_validate(attendance)
+
+
 @router.get("/{attendance_id}", response_model=AttendanceResponse)
 def get_attendance(
     attendance_id: uuid.UUID,
@@ -179,9 +224,18 @@ def update_attendance(
     """
     Update an attendance.
 
-    Duration is recalculated automatically if ended_at is updated.
-    If updated_client_status is provided, client status will be updated.
-    If scheduled_visit_at is provided and not already set, a visit will be created.
+    **Important Notes:**
+    - If you update the `objective` field for an ACTIVE attendance, consider whether
+      this should trigger a new cycle instead. The system will not automatically
+      close and recreate attendances on objective updates (manual control).
+    - If `status` is changed to COMPLETED, AI summary will be regenerated automatically.
+    - If `raw_content` or other AI-relevant fields are updated for a COMPLETED attendance,
+      the AI summary will be regenerated.
+
+    **Automatic Behaviors:**
+    - Duration is recalculated automatically if ended_at is updated.
+    - If updated_client_status is provided, client status will be updated.
+    - If scheduled_visit_at is provided and not already set, a visit will be created.
 
     Args:
         attendance_id: Attendance UUID

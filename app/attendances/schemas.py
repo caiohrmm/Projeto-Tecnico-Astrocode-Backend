@@ -32,7 +32,12 @@ class AttendanceBase(BaseModel):
     channel: AttendanceChannel = Field(..., description="Communication channel")
     started_at: datetime = Field(..., description="When the attendance cycle started")
     ended_at: datetime | None = Field(None, description="When the attendance cycle ended")
-    raw_content: str = Field(..., min_length=1, description="Raw content of conversations (can accumulate over time within the same cycle)")
+    raw_content: str = Field(
+        ...,
+        min_length=1,
+        max_length=100000,  # 100k chars limit to avoid performance issues
+        description="Raw content of conversations (can accumulate over time within the same cycle). Maximum 100,000 characters.",
+    )
     ai_summary: str | None = Field(None, description="AI-generated summary")
     ai_next_steps: str | None = Field(None, description="AI-generated next steps")
     status: AttendanceStatus = Field(
@@ -62,8 +67,19 @@ class AttendanceCreate(AttendanceBase):
     """
     Schema for creating a new attendance.
 
-    Required fields: client_id, agent_id, channel, started_at, raw_content.
-    Duration is calculated automatically when ended_at is provided.
+    **Cycle Logic:**
+    - If the client has an active attendance with the same objective, the new content
+      will be accumulated into the existing attendance (conversation continues).
+    - If the objective has changed significantly, the previous active attendance will be
+      closed (ABANDONED) and a new attendance cycle will be created.
+    - If no objective is provided, it will be auto-detected from the raw_content.
+
+    **Required fields:** client_id, agent_id, channel, started_at, raw_content.
+    
+    **Automatic behaviors:**
+    - Duration is calculated automatically when ended_at is provided.
+    - AI summary is generated automatically.
+    - Objective is auto-detected if not provided.
     """
 
     pass
@@ -73,8 +89,16 @@ class AttendanceUpdate(BaseModel):
     """
     Schema for updating attendance information.
 
-    All fields are optional to allow partial updates.
-    Duration is recalculated automatically if ended_at is updated.
+    **Important Notes:**
+    - All fields are optional to allow partial updates.
+    - If `status` is changed to COMPLETED, AI summary will be regenerated automatically.
+    - If `raw_content` or other AI-relevant fields are updated for a COMPLETED attendance,
+      the AI summary will be regenerated.
+    - If you update the `objective` field for an ACTIVE attendance, consider whether
+      this should trigger a new cycle instead (manual control).
+
+    **Automatic behaviors:**
+    - Duration is recalculated automatically if ended_at is updated.
     """
 
     client_id: uuid.UUID | None = None
@@ -84,7 +108,12 @@ class AttendanceUpdate(BaseModel):
     channel: AttendanceChannel | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
-    raw_content: str | None = Field(None, min_length=1)
+    raw_content: str | None = Field(
+        None,
+        min_length=1,
+        max_length=100000,  # 100k chars limit to avoid performance issues
+        description="Raw content of conversations. Maximum 100,000 characters.",
+    )
     ai_summary: str | None = None
     ai_next_steps: str | None = None
     status: AttendanceStatus | None = None

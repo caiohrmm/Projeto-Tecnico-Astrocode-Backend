@@ -165,22 +165,38 @@ class AttendanceRepository:
         - Creates new attendance if objective changed significantly
         - Updates existing attendance if same objective (accumulates conversations)
         
+        **Concurrency Safety:**
+        - Uses database-level locking to prevent race conditions
+        - Ensures only one ACTIVE attendance per client even with concurrent requests
+        
         Args:
             attendance_data: Attendance creation data
 
         Returns:
             Created or updated attendance instance
         """
-        # Get client data for objective detection context
-        client_repo = ClientRepository(self.db)
-        client = client_repo.get_by_id(attendance_data.client_id)
-        client_data = None
-        if client:
-            client_data = {
-                "current_interest_type": client.current_interest_type.value if client.current_interest_type else None,
-                "current_city_interest": client.current_city_interest,
-                "current_property_type": client.current_property_type.value if client.current_property_type else None,
-            }
+        # Use database transaction with row-level lock to prevent race conditions
+        # This ensures only one ACTIVE attendance per client even with concurrent requests
+        from sqlalchemy import select
+        
+        # Lock the client row to prevent concurrent attendance creation
+        # This prevents the race condition where two requests simultaneously:
+        # 1. Check for existing ACTIVE attendance (both find None)
+        # 2. Create new ACTIVE attendance (both create, violating uniqueness)
+        client = self.db.execute(
+            select(Client)
+            .where(Client.id == attendance_data.client_id)
+            .with_for_update(nowait=False)  # Wait for lock, prevents race condition
+        ).scalar_one_or_none()
+        
+        if not client:
+            raise ValueError(f"Client {attendance_data.client_id} not found")
+        
+        client_data = {
+            "current_interest_type": client.current_interest_type.value if client.current_interest_type else None,
+            "current_city_interest": client.current_city_interest,
+            "current_property_type": client.current_property_type.value if client.current_property_type else None,
+        }
         
         # Detect objective from raw_content
         structured_objective, human_readable_objective = AttendanceObjectiveService.detect_objective(
@@ -188,7 +204,8 @@ class AttendanceRepository:
             client_data=client_data,
         )
         
-        # Get existing active attendance for this client
+        # Get existing active attendance for this client (with lock to prevent race condition)
+        # This query is now safe because we have the client row locked
         existing_active_attendance = self.get_active_attendance_by_client(attendance_data.client_id)
         
         # Determine if should create new or update existing

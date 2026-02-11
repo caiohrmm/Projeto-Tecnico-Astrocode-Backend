@@ -299,10 +299,31 @@ Responda APENAS com um JSON válido no formato:
         """
         Compare two structured objectives to determine if they represent the same goal.
         
-        Comparison rules:
-        - intent_type must match (if both are present)
-        - city must match (if both are present)
-        - property_type can differ (client might refine preference within same cycle)
+        **Decision Logic:**
+        - Returns `True` if objectives are similar enough to continue the same cycle
+        - Returns `False` if objectives differ significantly (new cycle needed)
+        
+        **Comparison Rules (strict matching):**
+        1. **intent_type**: Must match exactly if both are present
+           - BUY ≠ RENT ≠ INVEST ≠ SELL
+           - If one is None, comparison is skipped (flexible)
+        
+        2. **city**: Must match exactly (case-insensitive, normalized)
+           - "São Paulo" == "são paulo" == "SAO PAULO"
+           - If one is None, comparison is skipped (flexible)
+        
+        3. **property_type**: Can differ (flexible matching)
+           - Client might refine preference within same cycle
+           - Example: "apartment" → "house" in same city with same intent = same cycle
+        
+        **Examples:**
+        - BUY + São Paulo + Apartment vs BUY + São Paulo + House → True (same cycle)
+        - BUY + São Paulo vs RENT + São Paulo → False (different cycle)
+        - BUY + São Paulo vs BUY + Rio de Janeiro → False (different cycle)
+        - BUY + São Paulo vs None + São Paulo → True (flexible, continues cycle)
+        
+        **Note:** This is a deterministic comparison based on structured fields,
+        not semantic similarity. For semantic similarity, use AI-based comparison.
         
         Args:
             objective1: First structured objective

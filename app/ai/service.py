@@ -141,17 +141,69 @@ class AISummaryService:
             }
 
     @staticmethod
+    def _truncate_content_intelligently(content: str, max_chars: int = 50000) -> str:
+        """
+        Truncate content intelligently, keeping the most recent and relevant parts.
+        
+        Strategy:
+        - If content is within limit, return as-is
+        - If exceeds limit, keep:
+          1. First 20% (context/objective)
+          2. Last 80% (most recent conversations)
+        
+        This ensures we maintain context while prioritizing recent information.
+        
+        Args:
+            content: Raw content to truncate
+            max_chars: Maximum characters to keep (default 50k for AI processing)
+            
+        Returns:
+            Truncated content
+        """
+        if len(content) <= max_chars:
+            return content
+        
+        logger.warning(
+            f"Content exceeds {max_chars} chars ({len(content)}). "
+            "Truncating intelligently to maintain context."
+        )
+        
+        # Keep first 20% for context (objective, initial conversation)
+        first_part_size = int(max_chars * 0.2)
+        first_part = content[:first_part_size]
+        
+        # Keep last 80% for recent conversations
+        last_part_size = max_chars - first_part_size
+        last_part = content[-last_part_size:]
+        
+        # Combine with separator
+        truncated = f"{first_part}\n\n[... conteúdo intermediário removido para otimização ...]\n\n{last_part}"
+        
+        return truncated
+    
+    @staticmethod
     def _generate_summary_text(raw_content: str) -> str:
-        """Generate summary text from raw content using Gemini API."""
+        """
+        Generate summary text from raw content using Gemini API.
+        
+        Automatically truncates content if it exceeds 50k characters to:
+        - Avoid excessive API costs
+        - Maintain AI context window
+        - Prioritize recent conversations while keeping initial context
+        """
         gemini = AISummaryService._get_gemini_service()
+        
+        # Truncate content intelligently if too large (50k chars limit for AI processing)
+        # This prevents excessive API costs and maintains context window
+        processed_content = AISummaryService._truncate_content_intelligently(raw_content, max_chars=50000)
         
         # If Gemini is not configured, fallback to simple extraction
         if not gemini.is_configured():
             logger.warning("Gemini API not configured, using fallback summary generation")
-            sentences = raw_content.split(".")
+            sentences = processed_content.split(".")
             important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
             summary = ". ".join(important_sentences)
-            return summary if summary else raw_content[:200]
+            return summary if summary else processed_content[:200]
         
         # Use Gemini to generate a real summary
         from datetime import datetime
@@ -181,7 +233,7 @@ CONTEXTO TEMPORAL:
 - Não mencione que datas próximas (até 1 mês) estão "distantes"
 
 CONTEÚDO DO ATENDIMENTO:
-{raw_content}
+{processed_content}
 
 RESUMO:"""
         
@@ -194,28 +246,28 @@ RESUMO:"""
             if result.get("error"):
                 logger.error(f"Error generating summary with Gemini: {result.get('error')}")
                 # Fallback to simple extraction
-                sentences = raw_content.split(".")
+                sentences = processed_content.split(".")
                 important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
                 summary = ". ".join(important_sentences)
-                return summary if summary else raw_content[:200]
+                return summary if summary else processed_content[:200]
             
             summary = result.get("answer", "").strip()
             if summary:
                 return summary
             
             # Fallback if empty response
-            sentences = raw_content.split(".")
+            sentences = processed_content.split(".")
             important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
             summary = ". ".join(important_sentences)
-            return summary if summary else raw_content[:200]
+            return summary if summary else processed_content[:200]
             
         except Exception as e:
             logger.error(f"Exception generating summary with Gemini: {e}", exc_info=True)
             # Fallback to simple extraction
-            sentences = raw_content.split(".")
+            sentences = processed_content.split(".")
             important_sentences = [s.strip() for s in sentences if len(s.strip()) > 20][:3]
             summary = ". ".join(important_sentences)
-            return summary if summary else raw_content[:200]
+            return summary if summary else processed_content[:200]
 
     @staticmethod
     def _extract_key_points(raw_content: str) -> dict[str, Any]:
