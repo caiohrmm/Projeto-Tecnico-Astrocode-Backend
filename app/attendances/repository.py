@@ -1,6 +1,7 @@
 """Attendance repository for database operations."""
 
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import List
@@ -9,8 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.attendances.models import Attendance, AttendanceChannel, AttendanceStatus
+from app.attendances.objective_service import AttendanceObjectiveService
 from app.attendances.schemas import AttendanceCreate, AttendanceUpdate
-from app.ai.models import AISummary
+from app.ai.models import AISummary, AISummaryStatus
 from app.ai.repository import AISummaryRepository
 from app.ai.schemas import AISummaryCreate
 from app.ai.service import AISummaryService
@@ -21,6 +23,8 @@ from app.clients.schemas import ClientUpdate
 from app.visits.models import Visit, VisitStatus
 from app.visits.repository import VisitRepository
 from app.clients.timeline_models import ClientTimeline, TimelineEventType
+
+logger = logging.getLogger(__name__)
 
 
 class AttendanceRepository:
@@ -50,13 +54,191 @@ class AttendanceRepository:
             return None
         return int((ended_at - started_at).total_seconds())
 
+    def get_active_attendance_by_client(self, client_id: uuid.UUID) -> Attendance | None:
+        """
+        Get the active attendance for a client.
+        
+        This method ensures uniqueness: if multiple ACTIVE attendances exist,
+        it closes all but the most recent one (data integrity fix).
+        
+        Args:
+            client_id: Client UUID
+            
+        Returns:
+            Active attendance instance or None if not found
+        """
+        stmt = (
+            select(Attendance)
+            .where(Attendance.client_id == client_id)
+            .where(Attendance.status == AttendanceStatus.ACTIVE)
+            .order_by(Attendance.created_at.desc())
+        )
+        active_attendances = list(self.db.scalars(stmt).all())
+        
+        if not active_attendances:
+            return None
+        
+        if len(active_attendances) > 1:
+            # Data integrity issue: multiple ACTIVE attendances exist
+            # Close all but the most recent one
+            logger.warning(
+                f"Found {len(active_attendances)} ACTIVE attendances for client {client_id}. "
+                "Closing all but the most recent one to maintain data integrity."
+            )
+            
+            # Keep the most recent (first in list due to order_by desc)
+            most_recent = active_attendances[0]
+            
+            # Close all others as ABANDONED (objective changed, cycle abandoned)
+            for attendance in active_attendances[1:]:
+                attendance.status = AttendanceStatus.ABANDONED
+                attendance.ended_at = datetime.utcnow()
+                if attendance.started_at:
+                    attendance.duration = self._calculate_duration(attendance.started_at, attendance.ended_at)
+                
+                self._add_timeline_event(
+                    client_id=client_id,
+                    event_type=TimelineEventType.ATTENDANCE_COMPLETED,
+                    title="Ciclo abandonado (múltiplos ACTIVE detectados)",
+                    description="Ciclo fechado automaticamente para manter integridade dos dados",
+                    related_attendance_id=attendance.id,
+                    event_data={
+                        "reason": "multiple_active_fix",
+                        "closed_at": attendance.ended_at.isoformat() if attendance.ended_at else None,
+                    },
+                )
+            
+            self.db.flush()
+            return most_recent
+        
+        return active_attendances[0]
+    
+    def _close_active_attendance(
+        self,
+        attendance: Attendance,
+        new_status: AttendanceStatus = AttendanceStatus.ABANDONED,
+        reason: str = "Novo ciclo iniciado",
+    ) -> None:
+        """
+        Close an active attendance explicitly.
+        
+        Args:
+            attendance: Attendance to close
+            new_status: Status to set (ABANDONED, COMPLETED, or LOST)
+            reason: Reason for closing (for timeline event)
+        """
+        if attendance.status != AttendanceStatus.ACTIVE:
+            return  # Already closed
+        
+        attendance.status = new_status
+        attendance.ended_at = datetime.utcnow()
+        if attendance.started_at:
+            attendance.duration = self._calculate_duration(attendance.started_at, attendance.ended_at)
+        
+        self._add_timeline_event(
+            client_id=attendance.client_id,
+            event_type=TimelineEventType.ATTENDANCE_COMPLETED,
+            title=f"Ciclo fechado: {new_status.value}",
+            description=reason,
+            related_attendance_id=attendance.id,
+            event_data={
+                "previous_status": "ACTIVE",
+                "new_status": new_status.value,
+                "closed_at": attendance.ended_at.isoformat() if attendance.ended_at else None,
+            },
+        )
+        
+        self.db.flush()
+        logger.info(
+            f"Closed attendance {attendance.id} for client {attendance.client_id} "
+            f"with status {new_status.value}. Reason: {reason}"
+        )
+
     def create(self, attendance_data: AttendanceCreate) -> Attendance:
         """
-        Create a new attendance.
-
+        Create a new attendance or update existing active attendance based on objective.
+        
+        This method implements the goal-oriented cycle logic:
+        - Detects objective from raw_content
+        - Checks if there's an active attendance with similar objective
+        - Creates new attendance if objective changed significantly
+        - Updates existing attendance if same objective (accumulates conversations)
+        
         Args:
             attendance_data: Attendance creation data
 
+        Returns:
+            Created or updated attendance instance
+        """
+        # Get client data for objective detection context
+        client_repo = ClientRepository(self.db)
+        client = client_repo.get_by_id(attendance_data.client_id)
+        client_data = None
+        if client:
+            client_data = {
+                "current_interest_type": client.current_interest_type.value if client.current_interest_type else None,
+                "current_city_interest": client.current_city_interest,
+                "current_property_type": client.current_property_type.value if client.current_property_type else None,
+            }
+        
+        # Detect objective from raw_content
+        structured_objective, human_readable_objective = AttendanceObjectiveService.detect_objective(
+            raw_content=attendance_data.raw_content,
+            client_data=client_data,
+        )
+        
+        # Get existing active attendance for this client
+        existing_active_attendance = self.get_active_attendance_by_client(attendance_data.client_id)
+        
+        # Determine if should create new or update existing
+        should_create_new = AttendanceObjectiveService.should_create_new_attendance(
+            client_id=attendance_data.client_id,
+            new_objective=structured_objective,
+            existing_active_attendance=existing_active_attendance,
+            db=self.db,
+            raw_content=attendance_data.raw_content,
+        )
+        
+        if should_create_new or not existing_active_attendance:
+            # Close existing active attendance if creating new one
+            if existing_active_attendance:
+                # Determine closure reason based on objective change
+                if structured_objective and existing_active_attendance.objective:
+                    reason = f"Objetivo mudou: '{existing_active_attendance.objective}' → '{human_readable_objective}'"
+                else:
+                    reason = "Novo ciclo iniciado"
+                
+                self._close_active_attendance(
+                    attendance=existing_active_attendance,
+                    new_status=AttendanceStatus.ABANDONED,  # Objective changed, previous cycle abandoned
+                    reason=reason,
+                )
+            
+            # Create new attendance
+            return self._create_new_attendance(
+                attendance_data=attendance_data,
+                objective=human_readable_objective,
+            )
+        else:
+            # Update existing attendance (accumulate conversations)
+            return self._update_existing_attendance(
+                existing_attendance=existing_active_attendance,
+                new_content=attendance_data.raw_content,
+                attendance_data=attendance_data,
+            )
+    
+    def _create_new_attendance(
+        self,
+        attendance_data: AttendanceCreate,
+        objective: str | None,
+    ) -> Attendance:
+        """
+        Create a new attendance with detected objective.
+        
+        Args:
+            attendance_data: Attendance creation data
+            objective: Detected objective (human-readable string)
+            
         Returns:
             Created attendance instance
         """
@@ -65,6 +247,10 @@ class AttendanceRepository:
         # Set default status if not provided
         if "status" not in attendance_dict or attendance_dict["status"] is None:
             attendance_dict["status"] = AttendanceStatus.ACTIVE
+
+        # Set objective if detected
+        if objective:
+            attendance_dict["objective"] = objective
 
         # Calculate duration if ended_at is provided
         started_at = attendance_dict.get("started_at")
@@ -98,18 +284,112 @@ class AttendanceRepository:
         self._add_timeline_event(
             client_id=db_attendance.client_id,
             event_type=TimelineEventType.ATTENDANCE_STARTED,
-            title="Novo atendimento iniciado",
-            description=f"Atendimento via {db_attendance.channel.value if db_attendance.channel else 'canal desconhecido'}",
+            title="Novo ciclo de atendimento iniciado",
+            description=f"Objetivo: {objective or 'Não definido'} - Atendimento via {db_attendance.channel.value if db_attendance.channel else 'canal desconhecido'}",
             related_attendance_id=db_attendance.id,
             event_data={
                 "channel": db_attendance.channel.value if db_attendance.channel else None,
                 "status": db_attendance.status.value if db_attendance.status else None,
+                "objective": objective,
             },
         )
 
         self.db.commit()
         self.db.refresh(db_attendance)
+        logger.info(
+            f"Created new attendance {db_attendance.id} for client {db_attendance.client_id} "
+            f"with objective: {objective}"
+        )
         return db_attendance
+    
+    def _update_existing_attendance(
+        self,
+        existing_attendance: Attendance,
+        new_content: str,
+        attendance_data: AttendanceCreate,
+    ) -> Attendance:
+        """
+        Update existing active attendance by accumulating new conversation content.
+        
+        Args:
+            existing_attendance: Existing active attendance to update
+            new_content: New conversation content to add
+            attendance_data: Attendance creation data (for other fields if needed)
+            
+        Returns:
+            Updated attendance instance
+        """
+        # Accumulate raw_content (add new conversation to existing)
+        # TODO: Consider content size limits (e.g., max 50k chars) to avoid:
+        # - High AI processing costs
+        # - Context loss in AI models
+        # - Performance issues
+        # Future optimization: Store conversations separately or truncate old content
+        separator = "\n\n---\n\n"
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        accumulated_content = f"{existing_attendance.raw_content}{separator}[{timestamp}] {new_content}"
+        
+        # Warn if content is getting large (potential issue)
+        if len(accumulated_content) > 10000:  # 10k chars threshold
+            logger.warning(
+                f"Attendance {existing_attendance.id} raw_content is large ({len(accumulated_content)} chars). "
+                "Consider content management strategy."
+            )
+        
+        # Update attendance with accumulated content
+        existing_attendance.raw_content = accumulated_content
+        
+        # Update other fields if provided (channel, property_id, etc.)
+        if attendance_data.property_id:
+            existing_attendance.property_id = attendance_data.property_id
+        
+        # Update scheduled_visit_at if provided and not already set
+        if attendance_data.scheduled_visit_at and not existing_attendance.scheduled_visit_at:
+            existing_attendance.scheduled_visit_at = attendance_data.scheduled_visit_at
+            self._create_visit_from_attendance(existing_attendance)
+        
+        # Update client status if provided
+        if attendance_data.updated_client_status:
+            self._update_client_from_attendance(existing_attendance, attendance_data.updated_client_status)
+        
+        self.db.flush()
+        
+        # Regenerate AI summary with accumulated content
+        # TODO: Optimize AI summary regeneration:
+        # - Only regenerate if content changed significantly (e.g., >20% new content)
+        # - Or mark as PENDING and process async to avoid blocking
+        # - Or use incremental updates instead of full regeneration
+        # For now: regenerate on every update (simple but potentially costly)
+        ai_repo = AISummaryRepository(self.db)
+        existing_ai_summary = ai_repo.get_by_attendance_id(existing_attendance.id)
+        if existing_ai_summary:
+            # Mark as REPROCESSING instead of deleting (preserves history)
+            existing_ai_summary.status = AISummaryStatus.REPROCESSING
+            self.db.flush()
+        
+        # Generate new AI summary with accumulated content
+        self._generate_ai_summary(existing_attendance)
+        
+        # Add timeline event for conversation update
+        self._add_timeline_event(
+            client_id=existing_attendance.client_id,
+            event_type=TimelineEventType.ATTENDANCE_STARTED,
+            title="Conversa adicionada ao ciclo atual",
+            description=f"Nova interação via {attendance_data.channel.value if attendance_data.channel else 'canal desconhecido'}",
+            related_attendance_id=existing_attendance.id,
+            event_data={
+                "channel": attendance_data.channel.value if attendance_data.channel else None,
+                "content_length": len(new_content),
+            },
+        )
+        
+        self.db.commit()
+        self.db.refresh(existing_attendance)
+        logger.info(
+            f"Updated existing attendance {existing_attendance.id} for client {existing_attendance.client_id} "
+            f"with new conversation content"
+        )
+        return existing_attendance
 
     def _update_client_from_attendance(
         self,
