@@ -154,9 +154,16 @@ class AISummaryService:
             return summary if summary else raw_content[:200]
         
         # Use Gemini to generate a real summary
+        from datetime import datetime
+        
+        # Get current date context for the AI
+        current_date = datetime.now().strftime("%d/%m/%Y")
+        
         prompt = f"""Você é um assistente especializado em análise de atendimentos imobiliários.
 
 Analise o seguinte conteúdo de atendimento e gere um resumo profissional, conciso e útil em português brasileiro.
+
+DATA ATUAL: {current_date}
 
 REGRAS IMPORTANTES:
 - NÃO copie o conteúdo original palavra por palavra
@@ -165,6 +172,13 @@ REGRAS IMPORTANTES:
 - Use linguagem profissional mas acessível
 - Seja específico sobre valores, localizações e preferências mencionadas
 - Máximo de 200 palavras
+
+CONTEXTO TEMPORAL:
+- Quando mencionar datas, compare com a data atual ({current_date})
+- "Semana que vem", "próxima semana", "daqui alguns dias" são datas PRÓXIMAS, não distantes
+- Considere "distante" apenas datas com mais de 1 mês de diferença
+- Se uma visita foi agendada para a próxima semana, isso indica INTERESSE CONCRETO e URGÊNCIA MÉDIA/ALTA
+- Não mencione que datas próximas (até 1 mês) estão "distantes"
 
 CONTEÚDO DO ATENDIMENTO:
 {raw_content}
@@ -293,14 +307,30 @@ RESUMO:"""
         """Detect urgency level from raw content."""
         content_lower = raw_content.lower()
 
-        if any(word in content_lower for word in ["imediato", "urgente", "hoje", "agora", "rápido"]):
+        # Immediate urgency indicators
+        if any(word in content_lower for word in ["imediato", "urgente", "hoje", "agora", "rápido", "já", "imediatamente"]):
             return UrgencyLevel.IMMEDIATE
-        elif any(word in content_lower for word in ["logo", "breve", "próximo", "em breve"]):
+        
+        # High urgency: next week, few days, soon
+        if any(word in content_lower for word in [
+            "semana que vem", "próxima semana", "próximo", "logo", "breve", "em breve",
+            "daqui alguns dias", "daqui poucos dias", "nos próximos dias", "essa semana"
+        ]):
             return UrgencyLevel.HIGH
-        elif any(word in content_lower for word in ["pensando", "avaliando", "considerando"]):
+        
+        # Medium urgency: thinking, evaluating, but with some timeline
+        if any(word in content_lower for word in ["pensando", "avaliando", "considerando", "mês que vem", "próximo mês"]):
             return UrgencyLevel.MEDIUM
-        else:
+        
+        # Low urgency: no clear timeline or distant future
+        if any(word in content_lower for word in ["futuro", "depois", "mais tarde", "sem pressa", "sem urgência"]):
             return UrgencyLevel.LOW
+        
+        # Default to medium if there's any indication of interest
+        if any(word in content_lower for word in ["interesse", "gostaria", "quero", "preciso", "buscar", "procurar"]):
+            return UrgencyLevel.MEDIUM
+        
+        return UrgencyLevel.LOW
 
     @staticmethod
     def _suggest_lead_score(
@@ -340,11 +370,60 @@ RESUMO:"""
 
     @staticmethod
     def _detect_sentiment(raw_content: str) -> Sentiment:
-        """Detect sentiment from raw content."""
+        """Detect sentiment from raw content using AI when available."""
+        gemini = AISummaryService._get_gemini_service()
+        
+        # If Gemini is configured, use AI for better sentiment analysis
+        if gemini.is_configured():
+            try:
+                prompt = f"""Analise o sentimento do seguinte atendimento imobiliário e retorne APENAS uma das opções: POSITIVE, NEGATIVE, NEUTRAL, ou MIXED.
+
+Considere:
+- POSITIVE: Cliente demonstra interesse, entusiasmo, satisfação, vontade de avançar
+- NEGATIVE: Cliente demonstra desinteresse, insatisfação, reclamações, frustração
+- NEUTRAL: Cliente está apenas informando, sem emoção clara, ou tom profissional neutro
+- MIXED: Cliente tem sentimentos contraditórios (gostou de algo mas não de outro)
+
+ATENDIMENTO:
+{raw_content}
+
+Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
+                
+                result = gemini.chat(
+                    message=prompt,
+                    system_prompt="Você é um especialista em análise de sentimento em atendimentos imobiliários. Retorne apenas uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED.",
+                )
+                
+                answer = result.get("answer", "").strip().upper()
+                
+                # Map AI response to Sentiment enum
+                if "POSITIVE" in answer:
+                    return Sentiment.POSITIVE
+                elif "NEGATIVE" in answer:
+                    return Sentiment.NEGATIVE
+                elif "MIXED" in answer:
+                    return Sentiment.MIXED
+                else:
+                    # Fallback to neutral if unclear
+                    return Sentiment.NEUTRAL
+                    
+            except Exception as e:
+                logger.warning(f"Error detecting sentiment with AI, using fallback: {e}")
+                # Fall through to fallback method
+        
+        # Fallback: Simple keyword-based detection
         content_lower = raw_content.lower()
 
-        positive_words = ["interessado", "gostei", "ótimo", "perfeito", "excelente", "adoro"]
-        negative_words = ["não gostei", "ruim", "caro", "problema", "insatisfeito", "desapontado"]
+        positive_words = [
+            "interessado", "gostei", "ótimo", "perfeito", "excelente", "adoro", 
+            "gostaria", "quero", "preciso", "interesse", "legal", "bom", "bom demais",
+            "maravilhoso", "incrível", "fantástico", "top", "show", "amei"
+        ]
+        negative_words = [
+            "não gostei", "ruim", "caro", "problema", "insatisfeito", "desapontado",
+            "não quero", "não preciso", "não gosto", "péssimo", "horrível", "não serve",
+            "muito caro", "caro demais", "não me interessa"
+        ]
 
         positive_count = sum(1 for word in positive_words if word in content_lower)
         negative_count = sum(1 for word in negative_words if word in content_lower)
