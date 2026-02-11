@@ -140,6 +140,7 @@ def list_clients(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
     lead_source: LeadSource | None = Query(None, description="Filter by lead source"),
+    search: str | None = Query(None, description="Search by name or phone"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[ClientResponse]:
@@ -150,6 +151,7 @@ def list_clients(
         skip: Number of records to skip
         limit: Maximum number of records to return
         lead_source: Optional filter by lead source
+        search: Optional search query to filter by name or phone
         db: Database session
         current_user: Current authenticated user
 
@@ -157,7 +159,7 @@ def list_clients(
         List of client information
     """
     repository = ClientRepository(db)
-    clients = repository.get_all(skip=skip, limit=limit, lead_source=lead_source)
+    clients = repository.get_all(skip=skip, limit=limit, lead_source=lead_source, search=search)
     return [ClientResponse.model_validate(client) for client in clients]
 
 

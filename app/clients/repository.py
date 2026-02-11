@@ -94,6 +94,7 @@ class ClientRepository:
         skip: int = 0,
         limit: int = 100,
         lead_source: LeadSource | None = None,
+        search: str | None = None,
     ) -> List[Client]:
         """
         Get all clients with optional filtering and pagination.
@@ -102,13 +103,36 @@ class ClientRepository:
             skip: Number of records to skip
             limit: Maximum number of records to return
             lead_source: Optional filter by lead source
+            search: Optional search query to filter by name or phone
 
         Returns:
             List of client instances
         """
+        from sqlalchemy import or_
+        
         stmt = select(Client)
+        
+        # Search filter (name or phone)
+        if search:
+            search_term = f"%{search.strip()}%"
+            # Remove non-digit characters from search for phone matching
+            phone_digits = ''.join(filter(str.isdigit, search.strip()))
+            if phone_digits:
+                # Search in name (case-insensitive) or phone (exact digits match)
+                stmt = stmt.where(
+                    or_(
+                        Client.name.ilike(search_term),
+                        Client.phone.like(f"%{phone_digits}%")
+                    )
+                )
+            else:
+                # Only search in name if no digits found
+                stmt = stmt.where(Client.name.ilike(search_term))
+        
+        # Lead source filter
         if lead_source:
             stmt = stmt.where(Client.lead_source == lead_source)
+        
         stmt = stmt.offset(skip).limit(limit).order_by(Client.created_at.desc())
         return list(self.db.scalars(stmt).all())
 
