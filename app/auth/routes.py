@@ -112,6 +112,51 @@ def get_current_user_info(
     return UserResponse.model_validate(current_user)
 
 
+@router.post(
+    "/public/register",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def public_register(
+    user_data: UserCreate,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    """
+    Public user registration endpoint.
+    
+    Anyone can register, but all users are automatically assigned the 'atendente' role.
+    Only managers can change user roles later via the role management endpoint.
+
+    Args:
+        user_data: User creation data (email, password, full_name)
+                   Note: role_names will be ignored and set to ['atendente']
+        db: Database session
+
+    Returns:
+        JWT access token and token type
+
+    Raises:
+        HTTPException: If email already exists
+    """
+    from fastapi import HTTPException
+    
+    auth_service = AuthService(db)
+    
+    # Force role to 'atendente' for public registrations
+    # Create a copy of user_data with atendente role
+    user_data_with_role = UserCreate(
+        email=user_data.email,
+        password=user_data.password,
+        full_name=user_data.full_name,
+        role_names=["atendente"],  # Always assign atendente role
+    )
+    
+    # Register user (this will create user and assign atendente role)
+    token_data = auth_service.register_user(user_data_with_role)
+    
+    return TokenResponse(**token_data)
+
+
 # Google OAuth routes
 @router.get("/google/login")
 async def google_login(
