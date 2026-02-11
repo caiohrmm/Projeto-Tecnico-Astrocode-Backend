@@ -780,10 +780,16 @@ class AttendanceRepository:
         
         suggestions = derivation_result.get("suggestions", [])
         field_sources = derivation_result.get("field_sources", {})
+        signals_count = derivation_result.get("signals_count", 0)
         
         if not suggestions:
-            # No suggestions to apply, but still update last_contact_at
-            update_data = {"last_contact_at": datetime.utcnow()}
+            # No suggestions to apply, but still update last_contact_at and track derivation
+            update_data = {
+                "last_contact_at": datetime.utcnow(),
+                "last_state_derivation_at": datetime.utcnow(),
+                "state_derivation_count": (client.state_derivation_count or 0) + 1,
+                "state_derived_from_attendances_count": signals_count,
+            }
             client_update = ClientUpdate(**update_data)
             client_repo.update(client, client_update)
             return
@@ -809,6 +815,11 @@ class AttendanceRepository:
 
         # Always update last_contact_at
         update_data["last_contact_at"] = datetime.utcnow()
+        
+        # Track state derivation metadata (for visibility/transparency)
+        update_data["last_state_derivation_at"] = datetime.utcnow()
+        update_data["state_derivation_count"] = (client.state_derivation_count or 0) + 1
+        update_data["state_derived_from_attendances_count"] = signals_count
 
         if update_data:
             client_update = ClientUpdate(**update_data)

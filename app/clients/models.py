@@ -198,6 +198,24 @@ class Client(Base):
         comment="First message from the client (used for AI classification)",
     )
 
+    # State Derivation Tracking (for visibility/transparency)
+    last_state_derivation_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Timestamp of last automatic state derivation from AI signals",
+    )
+    state_derivation_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        comment="Number of times client state was automatically derived from AI signals",
+    )
+    state_derived_from_attendances_count: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Number of attendances used in the last state derivation",
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

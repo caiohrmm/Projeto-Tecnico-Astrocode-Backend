@@ -159,6 +159,11 @@ class ClientUpdate(BaseModel):
     last_contact_at: datetime | None = None
     next_follow_up_at: datetime | None = None
     summary_notes: str | None = None
+    
+    # State Derivation Tracking (set automatically by system)
+    last_state_derivation_at: datetime | None = None
+    state_derivation_count: int | None = Field(None, ge=0)
+    state_derived_from_attendances_count: int | None = Field(None, ge=0)
 
     @field_validator("current_budget_max")
     @classmethod
@@ -205,6 +210,22 @@ class ClientResponse(ClientBase):
     initial_message: str | None = Field(
         None,
         description="First message from the client",
+    )
+
+    # State Derivation Tracking (for visibility/transparency)
+    last_state_derivation_at: datetime | None = Field(
+        None,
+        description="Timestamp of last automatic state derivation from AI signals",
+    )
+    state_derivation_count: int = Field(
+        0,
+        ge=0,
+        description="Number of times client state was automatically derived from AI signals",
+    )
+    state_derived_from_attendances_count: int | None = Field(
+        None,
+        ge=0,
+        description="Number of attendances used in the last state derivation",
     )
 
     # Timestamps
