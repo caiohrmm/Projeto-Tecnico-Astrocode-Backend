@@ -82,8 +82,38 @@ def create_attendance(
     _validate_agent_is_corretor(attendance_data.agent_id, db)
 
     attendance_repo = AttendanceRepository(db)
+    
+    # Track if there was an existing active attendance before creation
+    existing_active = attendance_repo.get_active_attendance_by_client(attendance_data.client_id)
+    existing_id = existing_active.id if existing_active else None
+    
     attendance = attendance_repo.create(attendance_data)
-    return AttendanceResponse.model_validate(attendance)
+    
+    # Determine the action taken
+    from app.attendances.schemas import CycleAction
+    
+    if existing_active and existing_active.id != attendance.id:
+        # New cycle created, previous one was closed
+        cycle_action = CycleAction.NEW_CYCLE_CREATED
+        previous_cycle_id = existing_active.id
+    elif existing_active and existing_active.id == attendance.id:
+        # Existing cycle was updated
+        cycle_action = CycleAction.CYCLE_UPDATED
+        previous_cycle_id = None
+    else:
+        # New cycle created (no previous active)
+        cycle_action = CycleAction.NEW_CYCLE_CREATED
+        previous_cycle_id = None
+    
+    # Create response with cycle action info
+    # Use model_validate and then add cycle action fields using model_copy
+    response = AttendanceResponse.model_validate(attendance)
+    response = response.model_copy(update={
+        'cycle_action': cycle_action,
+        'previous_cycle_id': previous_cycle_id,
+    })
+    
+    return response
 
 
 @router.get("/", response_model=List[AttendanceResponse])

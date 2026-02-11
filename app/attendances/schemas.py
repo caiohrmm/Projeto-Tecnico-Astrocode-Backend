@@ -1,5 +1,6 @@
 """Pydantic schemas for attendance validation and serialization."""
 
+import enum
 import json
 import uuid
 from datetime import datetime
@@ -129,6 +130,13 @@ class AttendanceUpdate(BaseModel):
         return self
 
 
+class CycleAction(str, enum.Enum):
+    """Enum for cycle action taken when creating/updating attendance."""
+    NEW_CYCLE_CREATED = "NEW_CYCLE_CREATED"
+    CYCLE_UPDATED = "CYCLE_UPDATED"
+    PREVIOUS_CYCLE_CLOSED = "PREVIOUS_CYCLE_CLOSED"
+
+
 class AttendanceResponse(BaseModel):
     """
     Schema for attendance response.
@@ -170,6 +178,14 @@ class AttendanceResponse(BaseModel):
     )
     created_at: datetime
     updated_at: datetime
+    cycle_action: CycleAction | None = Field(
+        None,
+        description="Action taken: NEW_CYCLE_CREATED, CYCLE_UPDATED, or PREVIOUS_CYCLE_CLOSED. Only present when creating/updating via POST.",
+    )
+    previous_cycle_id: uuid.UUID | None = Field(
+        None,
+        description="ID of the previous cycle that was closed (if any). Only present when NEW_CYCLE_CREATED.",
+    )
 
     @model_validator(mode="before")
     @classmethod
