@@ -25,15 +25,19 @@ class AttendanceBase(BaseModel):
     client_id: uuid.UUID = Field(..., description="Client ID (required)")
     agent_id: uuid.UUID = Field(..., description="Agent ID (required, must be corretor)")
     property_id: uuid.UUID | None = Field(None, description="Property ID (nullable)")
+    objective: str | None = Field(
+        None,
+        description="Clear objective of this interaction cycle (e.g., 'Purchase residential property in City X'). Can be auto-detected from content if not provided.",
+    )
     channel: AttendanceChannel = Field(..., description="Communication channel")
-    started_at: datetime = Field(..., description="When the attendance started")
-    ended_at: datetime | None = Field(None, description="When the attendance ended")
-    raw_content: str = Field(..., min_length=1, description="Raw content of the attendance")
+    started_at: datetime = Field(..., description="When the attendance cycle started")
+    ended_at: datetime | None = Field(None, description="When the attendance cycle ended")
+    raw_content: str = Field(..., min_length=1, description="Raw content of conversations (can accumulate over time within the same cycle)")
     ai_summary: str | None = Field(None, description="AI-generated summary")
     ai_next_steps: str | None = Field(None, description="AI-generated next steps")
     status: AttendanceStatus = Field(
-        AttendanceStatus.IN_PROGRESS,
-        description="Attendance status (defaults to IN_PROGRESS)",
+        AttendanceStatus.ACTIVE,
+        description="Attendance status (defaults to ACTIVE)",
     )
     updated_client_status: ClientStatusUpdate | None = Field(
         None,
@@ -76,6 +80,7 @@ class AttendanceUpdate(BaseModel):
     client_id: uuid.UUID | None = None
     agent_id: uuid.UUID | None = None
     property_id: uuid.UUID | None = None
+    objective: str | None = None
     channel: AttendanceChannel | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
@@ -111,15 +116,16 @@ class AttendanceResponse(BaseModel):
     client_id: uuid.UUID = Field(..., description="Client ID (required)")
     agent_id: uuid.UUID = Field(..., description="Agent ID (required, must be corretor)")
     property_id: uuid.UUID | None = Field(None, description="Property ID (nullable)")
+    objective: str | None = Field(None, description="Clear objective of this interaction cycle")
     channel: AttendanceChannel = Field(..., description="Communication channel")
-    started_at: datetime = Field(..., description="When the attendance started")
-    ended_at: datetime | None = Field(None, description="When the attendance ended")
-    raw_content: str = Field(..., min_length=1, description="Raw content of the attendance")
+    started_at: datetime = Field(..., description="When the attendance cycle started")
+    ended_at: datetime | None = Field(None, description="When the attendance cycle ended")
+    raw_content: str = Field(..., min_length=1, description="Raw content of conversations")
     ai_summary: str | None = Field(None, description="AI-generated summary")
     ai_next_steps: str | None = Field(None, description="AI-generated next steps")
     status: AttendanceStatus = Field(
-        AttendanceStatus.IN_PROGRESS,
-        description="Attendance status (defaults to IN_PROGRESS)",
+        AttendanceStatus.ACTIVE,
+        description="Attendance status",
     )
     updated_client_status: ClientStatusUpdate | None = Field(
         None,

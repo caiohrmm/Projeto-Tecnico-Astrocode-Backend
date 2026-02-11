@@ -43,11 +43,10 @@ ENUM_TRANSLATIONS = {
     "SITE": "Site",
     "IN_PERSON": "Presencial",
     # Attendance Status
-    "PENDING": "Pendente",
-    "IN_PROGRESS": "Em Andamento",
+    "ACTIVE": "Ativo",
     "COMPLETED": "Concluído",
-    "CANCELLED": "Cancelado",
-    "PAUSED": "Pausado",
+    "LOST": "Perdido",
+    "ABANDONED": "Abandonado",
 }
 
 SYSTEM_PROMPT = """Você é um assistente de IA especializado em imóveis e mercado imobiliário brasileiro. Sua função é ajudar usuários com:

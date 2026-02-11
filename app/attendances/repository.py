@@ -64,7 +64,7 @@ class AttendanceRepository:
 
         # Set default status if not provided
         if "status" not in attendance_dict or attendance_dict["status"] is None:
-            attendance_dict["status"] = AttendanceStatus.IN_PROGRESS
+            attendance_dict["status"] = AttendanceStatus.ACTIVE
 
         # Calculate duration if ended_at is provided
         started_at = attendance_dict.get("started_at")

@@ -28,31 +28,44 @@ class AttendanceChannel(str, enum.Enum):
 
 
 class AttendanceStatus(str, enum.Enum):
-    """Enum for attendance status."""
+    """
+    Enum for attendance status.
+    
+    Represents the lifecycle of a goal-oriented interaction cycle:
+    - ACTIVE: Cycle is ongoing, objective not yet resolved
+    - COMPLETED: Objective was successfully achieved (e.g., property purchased)
+    - LOST: Objective was not achieved (e.g., client chose another option)
+    - ABANDONED: Objective was abandoned (e.g., client lost interest, no response)
+    """
 
-    IN_PROGRESS = "IN_PROGRESS"
+    ACTIVE = "ACTIVE"
     COMPLETED = "COMPLETED"
-    CANCELLED = "CANCELLED"
-    PAUSED = "PAUSED"
+    LOST = "LOST"
+    ABANDONED = "ABANDONED"
 
 
 class Attendance(Base):
     """
-    Attendance model representing client service interactions.
+    Attendance model representing a goal-oriented interaction cycle.
+
+    An Attendance represents a decision cycle with a clear objective.
+    It begins when the client expresses a clear objective and ends when
+    that objective is resolved (won, lost, or abandoned).
 
     Attributes:
         id: Unique identifier (UUID)
         client_id: Foreign key to Client
         agent_id: Foreign key to User (real estate agent)
         property_id: Foreign key to Property (nullable)
+        objective: Clear objective of this interaction cycle (e.g., "Purchase residential property in City X")
         channel: Communication channel (WHATSAPP, SITE, PHONE, EMAIL, IN_PERSON)
-        started_at: When the attendance started
-        ended_at: When the attendance ended (nullable)
+        started_at: When the attendance cycle started
+        ended_at: When the attendance cycle ended (nullable)
         duration: Duration in seconds (calculated automatically)
-        raw_content: Raw content of the attendance conversation
-        ai_summary: AI-generated summary of the attendance
+        raw_content: Raw content of conversations (can accumulate over time within the same cycle)
+        ai_summary: AI-generated summary of the attendance cycle
         ai_next_steps: AI-generated next steps for the client
-        status: Attendance status (IN_PROGRESS, COMPLETED, CANCELLED, PAUSED)
+        status: Attendance status (ACTIVE, COMPLETED, LOST, ABANDONED)
         updated_client_status: JSON field to update client status fields
         scheduled_visit_at: Scheduled visit date/time (nullable)
         created_at: Timestamp when attendance was created
@@ -115,10 +128,16 @@ class Attendance(Base):
         comment="Duration in seconds, calculated automatically when ended_at is set",
     )
 
-    # Content
+    # Objective and content
+    objective: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Clear objective of this interaction cycle (e.g., 'Purchase residential property in City X')",
+    )
     raw_content: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+        comment="Raw content of conversations (can accumulate over time within the same cycle)",
     )
     ai_summary: Mapped[str | None] = mapped_column(
         Text,
@@ -132,7 +151,7 @@ class Attendance(Base):
     # Status and actions
     status: Mapped[AttendanceStatus] = mapped_column(
         Enum(AttendanceStatus, native_enum=False, length=20),
-        default=AttendanceStatus.IN_PROGRESS,
+        default=AttendanceStatus.ACTIVE,
         nullable=False,
         index=True,
     )
