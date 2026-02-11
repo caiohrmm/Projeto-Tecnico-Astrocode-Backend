@@ -20,6 +20,7 @@ from app.clients.models import Client
 from app.clients.repository import ClientRepository
 from app.clients.score_service import LeadScoreService
 from app.clients.schemas import ClientUpdate
+from app.clients.state_derivation_service import ClientStateDerivationService
 from app.visits.models import Visit, VisitStatus
 from app.visits.repository import VisitRepository
 from app.clients.timeline_models import ClientTimeline, TimelineEventType
@@ -727,14 +728,17 @@ class AttendanceRepository:
 
     def _update_client_from_ai_summary(self, client_id: uuid.UUID, ai_summary: AISummary) -> None:
         """
-        Update client with information detected by AI summary.
-
-        This method applies AI-detected information to the client record.
-        The AI has authority to update client fields based on attendance analysis.
-
+        Update client with information derived from structured signals.
+        
+        This method uses ClientStateDerivationService to:
+        - Derive consolidated state from all signals (not just this summary)
+        - Apply suggestions incrementally
+        - Respect human-defined values
+        - Use cluster logic to avoid mixing contexts
+        
         Args:
             client_id: Client UUID
-            ai_summary: AI summary instance
+            ai_summary: AI summary instance (used for context, but derivation considers all signals)
         """
         from app.clients.schemas import ClientUpdate
         from app.clients.models import ClientStatus
@@ -746,59 +750,47 @@ class AttendanceRepository:
         if not client:
             return
 
-        # Prepare update data from AI summary
+        # Derive consolidated state from all signals using ClientStateDerivationService
+        # This ensures we use cluster logic and respect human values
+        derivation_result = ClientStateDerivationService.derive_client_state(
+            client_id=client_id,
+            db=self.db,
+            respect_human_values=True,  # Don't overwrite human-defined values
+            only_active_attendances=False,  # Consider all attendances for consolidation
+            max_cycles=None,  # Consider all cycles
+            use_cluster_logic=True,  # Use cluster logic to avoid mixing contexts
+        )
+        
+        suggestions = derivation_result.get("suggestions", [])
+        field_sources = derivation_result.get("field_sources", {})
+        
+        if not suggestions:
+            # No suggestions to apply, but still update last_contact_at
+            update_data = {"last_contact_at": datetime.utcnow()}
+            client_update = ClientUpdate(**update_data)
+            client_repo.update(client, client_update)
+            return
+        
+        # Prepare update data from suggestions
         update_data = {}
         old_values = {}  # Track changes for timeline
-
-        # Update interest type if detected (always update if AI detects)
-        if ai_summary.interest_type_detected:
-            if client.current_interest_type != ai_summary.interest_type_detected:
-                old_values["current_interest_type"] = client.current_interest_type
-                update_data["current_interest_type"] = ai_summary.interest_type_detected
-
-        # Update property type if detected in key_points
-        if ai_summary.key_points and isinstance(ai_summary.key_points, dict):
-            detected_prop_type = ai_summary.key_points.get("property_type")
-            if detected_prop_type and client.current_property_type != detected_prop_type:
-                old_values["current_property_type"] = client.current_property_type
-                update_data["current_property_type"] = detected_prop_type
-
-        # Update city interest if detected in key_points
-        if ai_summary.key_points and isinstance(ai_summary.key_points, dict):
-            detected_city = ai_summary.key_points.get("city")
-            if detected_city and client.current_city_interest != detected_city:
-                old_values["current_city_interest"] = client.current_city_interest
-                update_data["current_city_interest"] = detected_city
-
-        # Update budget if detected (always update - AI has latest info)
-        if ai_summary.budget_min_detected is not None:
-            if client.current_budget_min != ai_summary.budget_min_detected:
-                old_values["current_budget_min"] = float(client.current_budget_min) if client.current_budget_min else None
-                update_data["current_budget_min"] = ai_summary.budget_min_detected
-        if ai_summary.budget_max_detected is not None:
-            if client.current_budget_max != ai_summary.budget_max_detected:
-                old_values["current_budget_max"] = float(client.current_budget_max) if client.current_budget_max else None
-                update_data["current_budget_max"] = ai_summary.budget_max_detected
-
-        # Update urgency level if detected (always update - AI has latest info)
-        if ai_summary.urgency_level_detected:
-            if client.current_urgency_level != ai_summary.urgency_level_detected:
-                old_values["current_urgency_level"] = client.current_urgency_level
-                update_data["current_urgency_level"] = ai_summary.urgency_level_detected
-
-        # Update lead score if suggested (always update - AI has authority)
-        if ai_summary.lead_score_suggested is not None:
-            if client.current_lead_score != ai_summary.lead_score_suggested:
-                old_values["current_lead_score"] = client.current_lead_score
-                update_data["current_lead_score"] = ai_summary.lead_score_suggested
-
-        # Update current_status based on detected intent and context
+        
+        for suggestion in suggestions:
+            field_name = suggestion.field_name
+            current_value = getattr(client, field_name, None)
+            
+            # Only apply if value is different
+            if current_value != suggestion.suggested_value:
+                old_values[field_name] = current_value
+                update_data[field_name] = suggestion.suggested_value
+        
+        # Update current_status based on detected intent and context (legacy logic for status progression)
         new_status = self._determine_client_status_from_ai(client, ai_summary)
         if new_status and client.current_status != new_status:
             old_values["current_status"] = client.current_status.value if client.current_status else None
             update_data["current_status"] = new_status
 
-        # Update last_contact_at
+        # Always update last_contact_at
         update_data["last_contact_at"] = datetime.utcnow()
 
         if update_data:
@@ -821,20 +813,43 @@ class AttendanceRepository:
                         "current_status": "Status",
                     }
                     label = field_labels.get(field, field)
-                    changes_description.append(f"{label}: {old_val or 'N/A'} → {new_val}")
+                    
+                    # Get source information for this field
+                    source_info = None
+                    for suggestion in suggestions:
+                        if suggestion.field_name == field:
+                            source_info = {
+                                "attendance_id": str(suggestion.source_attendance_id),
+                                "confidence": suggestion.confidence,
+                                "reason": suggestion.reason,
+                            }
+                            break
+                    
+                    change_desc = f"{label}: {old_val or 'N/A'} → {new_val}"
+                    if source_info:
+                        change_desc += f" (Confiança: {source_info['confidence']:.2f})"
+                    changes_description.append(change_desc)
                 
                 self._add_timeline_event(
                     client_id=client_id,
                     event_type=TimelineEventType.CLIENT_UPDATED_BY_AI,
-                    title="IA atualizou perfil do cliente",
+                    title="IA atualizou perfil do cliente (derivado de sinais consolidados)",
                     description="; ".join(changes_description),
                     event_data={
                         "old_values": old_values,
                         "new_values": {k: v for k, v in update_data.items() if k in old_values},
-                        "confidence": ai_summary.confidence_score,
+                        "field_sources": field_sources,
+                        "signals_count": derivation_result.get("signals_count", 0),
+                        "traceability": derivation_result.get("traceability", {}),
                     },
                     ai_generated=True,
                     importance=4,
+                )
+                
+                logger.info(
+                    f"Updated client {client_id} from AI summary {ai_summary.id}. "
+                    f"Applied {len(suggestions)} suggestions from {derivation_result.get('signals_count', 0)} signals. "
+                    f"Fields updated: {list(old_values.keys())}"
                 )
 
     def _determine_client_status_from_ai(self, client, ai_summary: AISummary) -> str | None:

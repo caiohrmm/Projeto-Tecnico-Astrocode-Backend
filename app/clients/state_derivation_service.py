@@ -90,6 +90,10 @@ class ClientStateDerivationService:
     RECENCY_WEIGHT = 0.4  # More recent signals are more valuable
     CONFIDENCE_WEIGHT = 0.6  # Higher confidence signals are more valuable
     
+    # Anti-flip (oscillation control) thresholds
+    MIN_CLUSTER_SCORE_DIFFERENCE = 0.15  # New cluster must be at least 0.15 points better to replace current
+    MIN_FIELD_SCORE_DIFFERENCE = 0.10  # New field value must be at least 0.10 points better to replace current
+    
     @staticmethod
     def extract_signals_from_ai_summary(
         ai_summary: AISummary,
@@ -337,21 +341,42 @@ class ClientStateDerivationService:
             # Sort clusters by score (best first)
             cluster_scores.sort(key=lambda x: x[2], reverse=True)
             
-            # Use the best cluster for suggestions
+            # Identify current active cluster (based on client's current values)
+            current_cluster_score = ClientStateDerivationService._calculate_current_cluster_score(
+                client=client,
+                signals=valid_signals,
+                reference_time=reference_time,
+            )
+            
+            # Use the best cluster for suggestions, but only if it's significantly better
             if cluster_scores:
                 best_attendance_id, best_cluster_signals, best_cluster_score = cluster_scores[0]
                 
-                # Extract suggestions from best cluster
-                for signal in best_cluster_signals:
-                    suggestion = ClientStateDerivationService._create_suggestion_from_signal(
-                        client=client,
-                        signal=signal,
-                        reference_time=reference_time,
-                        cluster_context=True,
-                        cluster_size=len(best_cluster_signals),
+                # Anti-flip: Only suggest changes if new cluster is significantly better
+                score_difference = best_cluster_score - current_cluster_score
+                
+                if score_difference >= ClientStateDerivationService.MIN_CLUSTER_SCORE_DIFFERENCE:
+                    # New cluster is significantly better, extract suggestions
+                    for signal in best_cluster_signals:
+                        suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                            client=client,
+                            signal=signal,
+                            reference_time=reference_time,
+                            cluster_context=True,
+                            cluster_size=len(best_cluster_signals),
+                            current_cluster_score=current_cluster_score,
+                            new_cluster_score=best_cluster_score,
+                        )
+                        if suggestion:
+                            suggestions.append(suggestion)
+                else:
+                    # New cluster is not significantly better, keep current state
+                    logger.info(
+                        f"Cluster score difference ({score_difference:.3f}) below threshold "
+                        f"({ClientStateDerivationService.MIN_CLUSTER_SCORE_DIFFERENCE}). "
+                        f"Keeping current client state to avoid oscillation. "
+                        f"Current: {current_cluster_score:.3f}, New: {best_cluster_score:.3f}"
                     )
-                    if suggestion:
-                        suggestions.append(suggestion)
         else:
             # Fallback: original field-by-field logic (for backward compatibility)
             field_signals = {
@@ -392,19 +417,121 @@ class ClientStateDerivationService:
                 ]
                 scored_signals.sort(key=lambda x: x[1], reverse=True)
                 
-                best_signal, _ = scored_signals[0]
+                best_signal, best_score = scored_signals[0]
                 
-                suggestion = ClientStateDerivationService._create_suggestion_from_signal(
-                    client=client,
-                    signal=best_signal,
-                    reference_time=reference_time,
-                    field_name=field_name,
-                    cluster_context=False,
-                )
-                if suggestion:
-                    suggestions.append(suggestion)
+                # Anti-flip: Calculate current field score
+                current_value = getattr(client, f"current_{field_name}", None)
+                current_field_score = 0.0
+                if current_value is not None:
+                    # Find signal that matches current value
+                    for signal in field_signal_list:
+                        signal_value = None
+                        if field_name == "interest_type":
+                            signal_value = signal.interest_type
+                        elif field_name == "property_type":
+                            signal_value = signal.property_type
+                        elif field_name == "city":
+                            signal_value = signal.city
+                        elif field_name == "budget_min":
+                            signal_value = signal.budget_min
+                        elif field_name == "budget_max":
+                            signal_value = signal.budget_max
+                        elif field_name == "urgency_level":
+                            signal_value = signal.urgency_level
+                        elif field_name == "lead_score":
+                            signal_value = signal.lead_score
+                        
+                        if signal_value == current_value:
+                            current_field_score = ClientStateDerivationService._calculate_signal_score(
+                                signal, reference_time
+                            )
+                            break
+                
+                # Only suggest if new value is significantly better
+                score_difference = best_score - current_field_score
+                
+                if score_difference >= ClientStateDerivationService.MIN_FIELD_SCORE_DIFFERENCE:
+                    suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                        client=client,
+                        signal=best_signal,
+                        reference_time=reference_time,
+                        field_name=field_name,
+                        cluster_context=False,
+                    )
+                    if suggestion:
+                        suggestions.append(suggestion)
+                else:
+                    logger.debug(
+                        f"Field {field_name} score difference ({score_difference:.3f}) below threshold "
+                        f"({ClientStateDerivationService.MIN_FIELD_SCORE_DIFFERENCE}). "
+                        f"Keeping current value to avoid oscillation."
+                    )
         
         return suggestions
+    
+    @staticmethod
+    def _calculate_current_cluster_score(
+        client: Client,
+        signals: list[StructuredSignal],
+        reference_time: datetime,
+    ) -> float:
+        """
+        Calculate score for the cluster that matches client's current values.
+        
+        This is used for anti-flip logic: we only change if new cluster is significantly better.
+        
+        Args:
+            client: Client instance
+            signals: List of all signals
+            reference_time: Reference time for recency calculation
+            
+        Returns:
+            Score of the current cluster (0.0 if no matching cluster found)
+        """
+        # Find signals that match current client values (current cluster)
+        matching_signals = []
+        
+        for signal in signals:
+            matches = True
+            
+            # Check if signal matches current client state
+            if client.current_interest_type:
+                if not signal.interest_type or signal.interest_type != client.current_interest_type:
+                    matches = False
+            
+            if client.current_city_interest:
+                if not signal.city or signal.city.lower() != client.current_city_interest.lower():
+                    matches = False
+            
+            if client.current_property_type:
+                if not signal.property_type or signal.property_type != client.current_property_type:
+                    matches = False
+            
+            if matches:
+                matching_signals.append(signal)
+        
+        if not matching_signals:
+            # No matching cluster found, return low score (easy to replace)
+            return 0.0
+        
+        # Calculate average score for matching signals
+        current_score = sum(
+            ClientStateDerivationService._calculate_signal_score(s, reference_time)
+            for s in matching_signals
+        ) / len(matching_signals) if matching_signals else 0.0
+        
+        # Add completeness bonus if current cluster has complete info
+        has_interest = client.current_interest_type is not None
+        has_city = client.current_city_interest is not None
+        has_property = client.current_property_type is not None
+        
+        completeness_bonus = 0.0
+        if has_interest and has_city:
+            completeness_bonus = 0.1
+        if has_interest and has_city and has_property:
+            completeness_bonus = 0.2
+        
+        return current_score + completeness_bonus
     
     @staticmethod
     def _create_suggestion_from_signal(
@@ -414,6 +541,8 @@ class ClientStateDerivationService:
         field_name: Optional[str] = None,
         cluster_context: bool = False,
         cluster_size: int = 1,
+        current_cluster_score: Optional[float] = None,
+        new_cluster_score: Optional[float] = None,
     ) -> Optional[ClientStateSuggestion]:
         """
         Create a suggestion from a signal.
@@ -491,6 +620,9 @@ class ClientStateDerivationService:
             reason_parts.append("sinal recente")
         if cluster_context:
             reason_parts.append(f"cluster completo ({cluster_size} sinais)")
+            if current_cluster_score is not None and new_cluster_score is not None:
+                score_diff = new_cluster_score - current_cluster_score
+                reason_parts.append(f"score +{score_diff:.2f} vs atual")
         else:
             reason_parts.append("sinal válido")
         
