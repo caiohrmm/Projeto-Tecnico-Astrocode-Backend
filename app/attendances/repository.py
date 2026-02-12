@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import List
@@ -317,7 +318,22 @@ class AttendanceRepository:
         # Future optimization: Store conversations separately or truncate old content
         separator = "\n\n---\n\n"
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        accumulated_content = f"{existing_attendance.raw_content}{separator}[{timestamp}] {new_content}"
+        
+        # Check if new_content already contains existing content (prevent duplication)
+        # This can happen if frontend sends full content instead of just new part
+        if new_content.startswith(existing_attendance.raw_content):
+            # Frontend sent full content, extract only the new part
+            new_part = new_content[len(existing_attendance.raw_content):].lstrip()
+            # Remove separator if present
+            if new_part.startswith(separator.strip()):
+                new_part = new_part[len(separator.strip()):].lstrip()
+            # Remove timestamp if present
+            timestamp_pattern = r'^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s*'
+            new_part = re.sub(timestamp_pattern, '', new_part)
+            accumulated_content = f"{existing_attendance.raw_content}{separator}[{timestamp}] {new_part}"
+        else:
+            # Normal case: new_content is just the new conversation
+            accumulated_content = f"{existing_attendance.raw_content}{separator}[{timestamp}] {new_content}"
         
         # Warn if content is getting large (potential issue)
         if len(accumulated_content) > 10000:  # 10k chars threshold
