@@ -205,3 +205,20 @@ class UserRepository:
             _ = user.roles
         return user
 
+    def get_by_role(self, role_id: uuid.UUID) -> List[User]:
+        """
+        Get all users with a specific role.
+
+        Args:
+            role_id: Role UUID
+
+        Returns:
+            List of users with the specified role
+        """
+        stmt = (
+            select(User)
+            .join(User.roles)
+            .where(Role.id == role_id)
+        )
+        return list(self.db.scalars(stmt).all())
+

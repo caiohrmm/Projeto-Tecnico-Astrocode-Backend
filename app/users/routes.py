@@ -6,7 +6,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_manager
+from app.auth.dependencies import get_current_active_user, get_current_manager
 from app.db import get_db
 from app.users.models import User
 from app.users.repository import UserRepository
@@ -107,6 +107,47 @@ def list_users(
     user_repo = UserRepository(db)
     users = user_repo.get_all(skip=skip, limit=limit)
     return [UserResponse.model_validate(user) for user in users]
+
+
+@router.get(
+    "/corretores",
+    response_model=List[UserResponse],
+    status_code=status.HTTP_200_OK,
+)
+def list_corretores(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> List[UserResponse]:
+    """
+    List all users with 'corretor' role.
+    
+    This endpoint is accessible to any authenticated user (not just managers),
+    as it's needed for selecting agents when creating attendances, properties, etc.
+    
+    IMPORTANT: This route must come BEFORE /{user_id} to avoid route conflicts.
+    
+    Args:
+        db: Database session
+        current_user: Current authenticated user (any role)
+    
+    Returns:
+        List of active users with 'corretor' role
+    """
+    user_repo = UserRepository(db)
+    role_repo = RoleRepository(db)
+    
+    # Get 'corretor' role
+    corretor_role = role_repo.get_by_name("corretor")
+    if not corretor_role:
+        return []
+    
+    # Get all users with 'corretor' role
+    users = user_repo.get_by_role(corretor_role.id)
+    
+    # Filter only active users
+    active_users = [user for user in users if user.is_active]
+    
+    return [UserResponse.model_validate(user) for user in active_users]
 
 
 @router.get(

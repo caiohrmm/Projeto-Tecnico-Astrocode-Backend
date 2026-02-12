@@ -60,7 +60,20 @@ class AttendanceObjective(BaseModel):
                 InterestType.SELL: "Vender",
                 InterestType.INVEST: "Investir",
             }
-            parts.append(intent_map.get(self.intent_type, self.intent_type.value))
+            # Handle both enum and string values
+            if isinstance(self.intent_type, str):
+                # If it's a string, try to map it
+                intent_str = self.intent_type.upper()
+                reverse_map = {
+                    "BUY": "Comprar",
+                    "RENT": "Alugar",
+                    "SELL": "Vender",
+                    "INVEST": "Investir",
+                }
+                parts.append(reverse_map.get(intent_str, self.intent_type))
+            else:
+                # If it's an enum, use the map
+                parts.append(intent_map.get(self.intent_type, self.intent_type.value))
         
         # Property type
         if self.property_type:
@@ -71,7 +84,21 @@ class AttendanceObjective(BaseModel):
                 PropertyType.COMMERCIAL: "imóvel comercial",
                 PropertyType.RURAL: "imóvel rural",
             }
-            parts.append(property_map.get(self.property_type, self.property_type.value.lower()))
+            # Handle both enum and string values
+            if isinstance(self.property_type, str):
+                # If it's a string, try to map it
+                property_str = self.property_type.upper()
+                reverse_map = {
+                    "HOUSE": "casa",
+                    "APARTMENT": "apartamento",
+                    "LAND": "terreno",
+                    "COMMERCIAL": "imóvel comercial",
+                    "RURAL": "imóvel rural",
+                }
+                parts.append(reverse_map.get(property_str, self.property_type.lower()))
+            else:
+                # If it's an enum, use the map
+                parts.append(property_map.get(self.property_type, self.property_type.value.lower()))
         
         # City
         if self.city:
