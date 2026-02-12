@@ -60,13 +60,18 @@ class AISummaryService:
         try:
             raw_content = attendance.raw_content.lower()
 
-            # Generate AI summary using Gemini API
-            summary_text = AISummaryService._generate_summary_text(attendance.raw_content)
+            # Detect urgency FIRST, before generating summary, to ensure consistency
+            urgency_level = AISummaryService._detect_urgency(attendance.raw_content)
+            
+            # Generate AI summary using Gemini API, passing detected urgency for consistency
+            summary_text = AISummaryService._generate_summary_text(
+                attendance.raw_content, 
+                detected_urgency=urgency_level
+            )
             key_points = AISummaryService._extract_key_points(raw_content)
             detected_intent = AISummaryService._detect_intent(raw_content)
             interest_type = AISummaryService._detect_interest_type(raw_content)
             budget_range = AISummaryService._detect_budget(raw_content)
-            urgency_level = AISummaryService._detect_urgency(raw_content)
             lead_score = AISummaryService._suggest_lead_score(
                 interest_type,
                 urgency_level,
@@ -182,7 +187,7 @@ class AISummaryService:
         return truncated
     
     @staticmethod
-    def _generate_summary_text(raw_content: str) -> str:
+    def _generate_summary_text(raw_content: str, detected_urgency: UrgencyLevel | None = None) -> str:
         """
         Generate summary text from raw content using Gemini API.
         
@@ -190,6 +195,10 @@ class AISummaryService:
         - Avoid excessive API costs
         - Maintain AI context window
         - Prioritize recent conversations while keeping initial context
+        
+        Args:
+            raw_content: Raw content of the attendance
+            detected_urgency: Detected urgency level to ensure consistency in summary
         """
         gemini = AISummaryService._get_gemini_service()
         
@@ -211,11 +220,24 @@ class AISummaryService:
         # Get current date context for the AI
         current_date = datetime.now().strftime("%d/%m/%Y")
         
+        # Map urgency level to Portuguese description for the prompt
+        urgency_context = ""
+        if detected_urgency:
+            urgency_map = {
+                UrgencyLevel.IMMEDIATE: "URGENTE/Imediata",
+                UrgencyLevel.HIGH: "ALTA",
+                UrgencyLevel.MEDIUM: "MÉDIA",
+                UrgencyLevel.LOW: "BAIXA",
+            }
+            urgency_label = urgency_map.get(detected_urgency, "MÉDIA")
+            urgency_context = f"\nNÍVEL DE URGÊNCIA DETECTADO: {urgency_label}\n- Use este nível de urgência ao mencionar urgência no resumo para manter consistência.\n- Se o nível detectado for {urgency_label}, mencione urgência {urgency_label.lower()} no resumo."
+        
         prompt = f"""Você é um assistente especializado em análise de atendimentos imobiliários.
 
 Analise o seguinte conteúdo de atendimento e gere um resumo profissional, conciso e útil em português brasileiro.
 
 DATA ATUAL: {current_date}
+{urgency_context}
 
 REGRAS IMPORTANTES:
 - NÃO copie o conteúdo original palavra por palavra
@@ -224,6 +246,7 @@ REGRAS IMPORTANTES:
 - Use linguagem profissional mas acessível
 - Seja específico sobre valores, localizações e preferências mencionadas
 - Máximo de 200 palavras
+- IMPORTANTE: Se um nível de urgência foi detectado acima, use EXATAMENTE esse nível ao mencionar urgência no resumo
 
 CONTEXTO TEMPORAL:
 - Quando mencionar datas, compare com a data atual ({current_date})
@@ -398,30 +421,77 @@ RESUMO:"""
 
     @staticmethod
     def _detect_urgency(raw_content: str) -> UrgencyLevel | None:
-        """Detect urgency level from raw content."""
+        """
+        Detect urgency level from raw content.
+        
+        Priority order:
+        1. IMMEDIATE - explicit urgent/immediate keywords
+        2. HIGH - short-term timelines (days, next week)
+        3. MEDIUM - medium-term timelines (weeks, months up to 6)
+        4. LOW - long-term or no timeline
+        """
+        import re
         content_lower = raw_content.lower()
 
         # Immediate urgency indicators
-        if any(word in content_lower for word in ["imediato", "urgente", "hoje", "agora", "rápido", "já", "imediatamente"]):
+        if any(word in content_lower for word in ["imediato", "urgente", "hoje", "agora", "rápido", "já", "imediatamente", "asap"]):
             return UrgencyLevel.IMMEDIATE
         
-        # High urgency: next week, few days, soon
-        if any(word in content_lower for word in [
+        # High urgency: next week, few days, soon, specific short timelines
+        high_urgency_patterns = [
             "semana que vem", "próxima semana", "próximo", "logo", "breve", "em breve",
-            "daqui alguns dias", "daqui poucos dias", "nos próximos dias", "essa semana"
-        ]):
+            "daqui alguns dias", "daqui poucos dias", "nos próximos dias", "essa semana",
+            "em dias", "em algumas semanas", "nas próximas semanas"
+        ]
+        if any(pattern in content_lower for pattern in high_urgency_patterns):
             return UrgencyLevel.HIGH
         
-        # Medium urgency: thinking, evaluating, but with some timeline
-        if any(word in content_lower for word in ["pensando", "avaliando", "considerando", "mês que vem", "próximo mês"]):
+        # Check for numeric timeframes (e.g., "em 3 dias", "em 2 semanas")
+        # High: 1-14 days, 1-2 weeks
+        numeric_high = re.search(r"em\s+(\d+)\s+(dia|dias|semana|semanas)", content_lower)
+        if numeric_high:
+            number = int(numeric_high.group(1))
+            unit = numeric_high.group(2)
+            if (unit in ["dia", "dias"] and number <= 14) or (unit in ["semana", "semanas"] and number <= 2):
+                return UrgencyLevel.HIGH
+        
+        # Medium urgency: thinking, evaluating, medium-term timelines (1-6 months)
+        medium_urgency_patterns = [
+            "pensando", "avaliando", "considerando", "mês que vem", "próximo mês",
+            "em questão de", "em alguns meses", "nos próximos meses"
+        ]
+        if any(pattern in content_lower for pattern in medium_urgency_patterns):
             return UrgencyLevel.MEDIUM
         
+        # Check for numeric timeframes for medium (3-6 months)
+        numeric_medium = re.search(r"em\s+(\d+)\s+(mês|meses|semana|semanas)", content_lower)
+        if numeric_medium:
+            number = int(numeric_medium.group(1))
+            unit = numeric_medium.group(2)
+            if (unit in ["mês", "meses"] and 1 <= number <= 6) or (unit in ["semana", "semanas"] and 3 <= number <= 8):
+                return UrgencyLevel.MEDIUM
+        
+        # Also check for "em X meses" patterns
+        months_pattern = re.search(r"(\d+)\s*(?:a|até|ou)\s*(\d+)?\s*m(?:ês|es)", content_lower)
+        if months_pattern:
+            num1 = int(months_pattern.group(1))
+            num2 = int(months_pattern.group(2)) if months_pattern.group(2) else num1
+            if num1 <= 6 or num2 <= 6:
+                return UrgencyLevel.MEDIUM
+        
         # Low urgency: no clear timeline or distant future
-        if any(word in content_lower for word in ["futuro", "depois", "mais tarde", "sem pressa", "sem urgência"]):
+        if any(word in content_lower for word in ["futuro", "depois", "mais tarde", "sem pressa", "sem urgência", "longo prazo"]):
             return UrgencyLevel.LOW
         
-        # Default to medium if there's any indication of interest
-        if any(word in content_lower for word in ["interesse", "gostaria", "quero", "preciso", "buscar", "procurar"]):
+        # Check for long-term numeric timeframes (> 6 months)
+        numeric_low = re.search(r"em\s+(\d+)\s+(mês|meses)", content_lower)
+        if numeric_low:
+            number = int(numeric_low.group(1))
+            if number > 6:
+                return UrgencyLevel.LOW
+        
+        # Default to medium if there's any indication of interest (conservative approach)
+        if any(word in content_lower for word in ["interesse", "gostaria", "quero", "preciso", "buscar", "procurar", "deseja"]):
             return UrgencyLevel.MEDIUM
         
         return UrgencyLevel.LOW
