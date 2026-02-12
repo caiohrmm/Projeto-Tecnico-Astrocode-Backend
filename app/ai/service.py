@@ -331,18 +331,60 @@ RESUMO:"""
         """Detect budget range from raw content."""
         import re
 
-        # Look for numbers that might be prices (R$, valores, etc.)
-        numbers = re.findall(r"[\d.]+", raw_content.replace(",", "."))
+        # Normalize content: remove R$ and common words, normalize separators
+        normalized = raw_content.replace("R$", "").replace("reais", "").replace("real", "")
+        normalized = normalized.replace(",", ".")  # Convert comma to dot for decimal
+        
+        # Pattern 1: Numbers with thousands separator (500.000, 1.500.000)
+        # Pattern 2: Numbers with "mil" (500 mil, 1.5 milhão)
+        # Pattern 3: Plain numbers (500000)
+        
         prices = []
-
-        for num_str in numbers:
+        
+        # Pattern 1: Numbers with dots (Brazilian format: 500.000)
+        dot_pattern = r"(\d{1,3}(?:\.\d{3})*(?:\.\d+)?)"
+        for match in re.finditer(dot_pattern, normalized):
+            num_str = match.group(1).replace(".", "")
             try:
                 num = float(num_str)
-                # Assume prices are between 50k and 10M
                 if 50000 <= num <= 10000000:
                     prices.append(num)
             except ValueError:
                 continue
+        
+        # Pattern 2: Numbers with "mil" or "milhão"
+        mil_pattern = r"(\d+(?:[.,]\d+)?)\s*(?:mil|milh[oõ]es?|milh[oõ]es?)"
+        for match in re.finditer(mil_pattern, normalized, re.IGNORECASE):
+            num_str = match.group(1).replace(",", ".")
+            try:
+                num = float(num_str)
+                # Convert to actual number
+                if "milh" in match.group(0).lower():
+                    num = num * 1000000
+                else:
+                    num = num * 1000
+                if 50000 <= num <= 10000000:
+                    prices.append(num)
+            except ValueError:
+                continue
+        
+        # Pattern 3: Plain numbers (fallback)
+        if not prices:
+            numbers = re.findall(r"\d+(?:[.,]\d+)?", normalized)
+            for num_str in numbers:
+                try:
+                    # Try as-is first
+                    num = float(num_str.replace(",", "."))
+                    # If it's a reasonable price range, use it
+                    if 50000 <= num <= 10000000:
+                        prices.append(num)
+                    # If it's a small number but in context of "mil", multiply
+                    elif 1 <= num <= 10000 and "mil" in normalized.lower():
+                        num = num * 1000
+                        if 50000 <= num <= 10000000:
+                            prices.append(num)
+                except ValueError:
+                    continue
 
         if prices:
             min_price = min(prices)
@@ -522,40 +564,51 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
     @staticmethod
     def _extract_city(raw_content: str) -> str | None:
         """Extract city name from raw content."""
+        import re
+        
         content_lower = raw_content.lower()
         
-        # Try to find patterns like "em [city]", "na cidade de [city]", etc.
-        # This approach is more flexible and catches any city name
-        patterns = [
+        # Common skip words that are not cities
+        skip_words = {
+            "casa", "apartamento", "imóvel", "terreno", "comprar", "alugar", "vender",
+            "buscar", "procurar", "quer", "uma", "um", "breve", "geral", "qualquer",
+            "lugar", "algum", "alguma", "deseja", "desejo", "preciso", "precisa",
+            "orçamento", "orçamento", "valor", "preço", "mil", "milhão", "reais"
+        }
+        
+        # Try uppercase patterns first (more reliable for city names)
+        uppercase_patterns = [
             # "em Manduri", "em São Paulo", etc.
-            r"(?:em|na|no|para)\s+([A-Z][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-Z][a-zà-ú]+)*)",
+            r"(?:em|na|no|para)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
             # "cidade de Manduri"
-            r"cidade\s+(?:de|do|da)?\s*([A-Z][a-zà-ú]+(?:\s+[A-Za-zà-ú]+)*)",
+            r"cidade\s+(?:de|do|da)?\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
             # "morar em Manduri"
-            r"morar\s+em\s+([A-Z][a-zà-ú]+(?:\s+[A-Za-zà-ú]+)*)",
+            r"morar\s+em\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
             # "imóvel em Manduri"
-            r"imóvel\s+em\s+([A-Z][a-zà-ú]+(?:\s+[A-Za-zà-ú]+)*)",
+            r"imóvel\s+em\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
             # "casa em Manduri"
-            r"(?:casa|apartamento|terreno)\s+em\s+([A-Z][a-zà-ú]+(?:\s+[A-Za-zà-ú]+)*)",
+            r"(?:casa|apartamento|terreno)\s+em\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
         ]
         
-        for pattern in patterns:
+        for pattern in uppercase_patterns:
             matches = re.findall(pattern, raw_content)
             if matches:
                 for match in matches:
-                    # Clean up the match
                     city = match.strip()
-                    # Skip common non-city words
-                    skip_words = ["casa", "apartamento", "imóvel", "terreno", "comprar", 
-                                  "alugar", "vender", "buscar", "procurar", "quer"]
+                    # Skip if it's a common word or too short
                     if city.lower() not in skip_words and len(city) > 2:
-                        # City names are usually 1-3 words
-                        if len(city.split()) <= 4:
-                            return city
+                        # City names are usually 1-4 words
+                        words = city.split()
+                        if len(words) <= 4:
+                            # Check if any word is in skip list
+                            if not any(word.lower() in skip_words for word in words):
+                                return city
         
         # Also check for cities mentioned with lowercase after prepositions
+        # This catches cases like "em manduri" (lowercase)
         lowercase_patterns = [
             r"(?:em|na|no|para)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
+            r"cidade\s+(?:de|do|da)?\s+([a-zà-ú]+(?:\s+[a-zà-ú]+)*)",
         ]
         
         for pattern in lowercase_patterns:
@@ -563,11 +616,15 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
             if matches:
                 for match in matches:
                     city = match.strip()
-                    skip_words = ["casa", "apartamento", "imóvel", "terreno", "comprar", 
-                                  "alugar", "vender", "buscar", "procurar", "quer", "uma", "um",
-                                  "breve", "geral", "qualquer", "lugar", "algum"]
-                    if city.lower() not in skip_words and len(city) > 3:
-                        if len(city.split()) <= 3:
+                    # Skip if it's a common word, too short, or contains numbers
+                    if (city.lower() not in skip_words and 
+                        len(city) > 3 and 
+                        not re.search(r'\d', city) and
+                        len(city.split()) <= 3):
+                        # Check if any word is in skip list
+                        words = city.split()
+                        if not any(word.lower() in skip_words for word in words):
+                            # Capitalize properly
                             return city.title()
         
         return None

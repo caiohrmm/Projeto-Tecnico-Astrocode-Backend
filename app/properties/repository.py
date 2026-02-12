@@ -161,39 +161,52 @@ class PropertyRepository:
         if property_type:
             stmt = stmt.where(Property.property_type == property_type)
 
-        # Filter by city
+        # Filter by city (case-insensitive, flexible matching)
         if city:
-            stmt = stmt.where(Property.city.ilike(f"%{city}%"))
+            # Normalize city name for better matching
+            city_normalized = city.strip().title()
+            stmt = stmt.where(
+                or_(
+                    Property.city.ilike(f"%{city_normalized}%"),
+                    Property.city.ilike(f"%{city.strip()}%"),
+                )
+            )
 
-        # Filter by budget
+        # Filter by budget (flexible: allow 20% tolerance for better matches)
         if budget_min is not None or budget_max is not None:
             price_conditions = []
+            # Add tolerance: allow properties within 20% of budget range
+            tolerance_min = budget_min * 0.8 if budget_min else None
+            tolerance_max = budget_max * 1.2 if budget_max else None
+            
             if interest_type == "BUY":
                 # For buying, check price field
                 if budget_min is not None:
-                    price_conditions.append(Property.price >= budget_min)
+                    # Allow properties up to 20% below min budget
+                    price_conditions.append(Property.price >= tolerance_min)
                 if budget_max is not None:
-                    price_conditions.append(Property.price <= budget_max)
+                    # Allow properties up to 20% above max budget
+                    price_conditions.append(Property.price <= tolerance_max)
             elif interest_type == "RENT":
                 # For renting, check rent_price field
                 if budget_min is not None:
-                    price_conditions.append(Property.rent_price >= budget_min)
+                    price_conditions.append(Property.rent_price >= tolerance_min)
                 if budget_max is not None:
-                    price_conditions.append(Property.rent_price <= budget_max)
+                    price_conditions.append(Property.rent_price <= tolerance_max)
             else:
                 # If interest type not specified, check both
                 if budget_min is not None:
                     price_conditions.append(
                         or_(
-                            Property.price >= budget_min,
-                            Property.rent_price >= budget_min,
+                            Property.price >= tolerance_min,
+                            Property.rent_price >= tolerance_min,
                         )
                     )
                 if budget_max is not None:
                     price_conditions.append(
                         or_(
-                            Property.price <= budget_max,
-                            Property.rent_price <= budget_max,
+                            Property.price <= tolerance_max,
+                            Property.rent_price <= tolerance_max,
                         )
                     )
 

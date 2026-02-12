@@ -410,6 +410,11 @@ class ClientStateDerivationService:
                 if not field_signal_list:
                     continue
                 
+                # Map field name to client field name
+                client_field_name = field_name
+                if field_name == "city":
+                    client_field_name = "city_interest"
+                
                 # Sort by score (best first)
                 scored_signals = [
                     (signal, ClientStateDerivationService._calculate_signal_score(signal, reference_time))
@@ -420,7 +425,7 @@ class ClientStateDerivationService:
                 best_signal, best_score = scored_signals[0]
                 
                 # Anti-flip: Calculate current field score
-                current_value = getattr(client, f"current_{field_name}", None)
+                current_value = getattr(client, f"current_{client_field_name}", None)
                 current_field_score = 0.0
                 if current_value is not None:
                     # Find signal that matches current value
@@ -455,7 +460,7 @@ class ClientStateDerivationService:
                         client=client,
                         signal=best_signal,
                         reference_time=reference_time,
-                        field_name=field_name,
+                        field_name=client_field_name,
                         cluster_context=False,
                     )
                     if suggestion:
@@ -567,7 +572,7 @@ class ClientStateDerivationService:
                 field_name = "property_type"
                 suggested_value = signal.property_type
             elif signal.city:
-                field_name = "city"
+                field_name = "city_interest"  # Map to client field name
                 suggested_value = signal.city
             elif signal.budget_min is not None:
                 field_name = "budget_min"
@@ -589,8 +594,9 @@ class ClientStateDerivationService:
                 suggested_value = signal.interest_type
             elif field_name == "property_type":
                 suggested_value = signal.property_type
-            elif field_name == "city":
+            elif field_name == "city" or field_name == "city_interest":
                 suggested_value = signal.city
+                field_name = "city_interest"  # Normalize to client field name
             elif field_name == "budget_min":
                 suggested_value = Decimal(str(signal.budget_min)) if signal.budget_min else None
             elif field_name == "budget_max":
