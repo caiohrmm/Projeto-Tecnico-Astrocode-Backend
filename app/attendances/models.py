@@ -59,9 +59,6 @@ class Attendance(Base):
         property_id: Foreign key to Property (nullable)
         objective: Clear objective of this interaction cycle (e.g., "Purchase residential property in City X")
         channel: Communication channel (WHATSAPP, SITE, PHONE, EMAIL, IN_PERSON)
-        started_at: When the attendance cycle started
-        ended_at: When the attendance cycle ended (nullable)
-        duration: Duration in seconds (calculated automatically)
         raw_content: Raw content of conversations (can accumulate over time within the same cycle)
         ai_summary: AI-generated summary of the attendance cycle
         ai_next_steps: AI-generated next steps for the client
@@ -112,20 +109,6 @@ class Attendance(Base):
         Enum(AttendanceChannel, native_enum=False, length=20),
         nullable=False,
         index=True,
-    )
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        index=True,
-    )
-    ended_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
-    duration: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
-        comment="Duration in seconds, calculated automatically when ended_at is set",
     )
 
     # Objective and content

@@ -54,14 +54,6 @@ class AttendanceBase(BaseModel):
         description="Scheduled visit date/time (will create a visit if provided)",
     )
 
-    @model_validator(mode="after")
-    def validate_dates(self) -> "AttendanceBase":
-        """Validate that ended_at is not before started_at."""
-        # Only validate if both dates are provided and ended_at is before started_at
-        if self.ended_at is not None and self.started_at is not None:
-            if self.ended_at < self.started_at:
-                raise ValueError("ended_at cannot be before started_at")
-        return self
 
 
 class AttendanceCreate(AttendanceBase):
@@ -75,10 +67,9 @@ class AttendanceCreate(AttendanceBase):
       closed (ABANDONED) and a new attendance cycle will be created.
     - If no objective is provided, it will be auto-detected from the raw_content.
 
-    **Required fields:** client_id, agent_id, channel, started_at, raw_content.
+    **Required fields:** client_id, agent_id, channel, raw_content.
     
     **Automatic behaviors:**
-    - Duration is calculated automatically when ended_at is provided.
     - AI summary is generated automatically.
     - Objective is auto-detected if not provided.
     """
@@ -98,8 +89,6 @@ class AttendanceUpdate(BaseModel):
     - If you update the `objective` field for an ACTIVE attendance, consider whether
       this should trigger a new cycle instead (manual control).
 
-    **Automatic behaviors:**
-    - Duration is recalculated automatically if ended_at is updated.
     """
 
     client_id: uuid.UUID | None = None
@@ -107,8 +96,6 @@ class AttendanceUpdate(BaseModel):
     property_id: uuid.UUID | None = None
     objective: str | None = None
     channel: AttendanceChannel | None = None
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
     raw_content: str | None = Field(
         None,
         min_length=1,
@@ -121,13 +108,6 @@ class AttendanceUpdate(BaseModel):
     updated_client_status: ClientStatusUpdate | None = None
     scheduled_visit_at: datetime | None = None
 
-    @model_validator(mode="after")
-    def validate_dates(self) -> "AttendanceUpdate":
-        """Validate that ended_at is not before started_at."""
-        if self.ended_at is not None and self.started_at is not None:
-            if self.ended_at < self.started_at:
-                raise ValueError("ended_at cannot be before started_at")
-        return self
 
 
 class CycleAction(str, enum.Enum):
@@ -141,12 +121,7 @@ class AttendanceResponse(BaseModel):
     """
     Schema for attendance response.
 
-    Includes all base fields plus id, duration, and timestamps.
-    Duration is calculated automatically.
-    
-    Note: This schema does not validate dates to allow reading existing data
-    that may have invalid date relationships. Validation is only applied
-    when creating or updating attendances.
+    Includes all base fields plus id and timestamps.
     """
 
     id: uuid.UUID
@@ -155,8 +130,6 @@ class AttendanceResponse(BaseModel):
     property_id: uuid.UUID | None = Field(None, description="Property ID (nullable)")
     objective: str | None = Field(None, description="Clear objective of this interaction cycle")
     channel: AttendanceChannel = Field(..., description="Communication channel")
-    started_at: datetime = Field(..., description="When the attendance cycle started")
-    ended_at: datetime | None = Field(None, description="When the attendance cycle ended")
     raw_content: str = Field(..., min_length=1, description="Raw content of conversations")
     ai_summary: str | None = Field(None, description="AI-generated summary")
     ai_next_steps: str | None = Field(None, description="AI-generated next steps")
@@ -171,10 +144,6 @@ class AttendanceResponse(BaseModel):
     scheduled_visit_at: datetime | None = Field(
         None,
         description="Scheduled visit date/time (will create a visit if provided)",
-    )
-    duration: int | None = Field(
-        None,
-        description="Duration in seconds (calculated automatically when ended_at is set)",
     )
     created_at: datetime
     updated_at: datetime

@@ -64,7 +64,6 @@ def create_attendance(
     - If no objective is provided, it will be auto-detected from the raw_content.
 
     **Automatic Behaviors:**
-    - Duration is calculated automatically when ended_at is provided.
     - AI summary is generated automatically for new attendances.
     - If updated_client_status is provided, client status will be updated.
     - If scheduled_visit_at is provided, a visit will be created automatically.
@@ -125,8 +124,6 @@ def list_attendances(
     property_id: uuid.UUID | None = Query(None, description="Filter by property ID"),
     channel: AttendanceChannel | None = Query(None, description="Filter by channel"),
     status: AttendanceStatus | None = Query(None, description="Filter by status"),
-    started_from: datetime | None = Query(None, description="Filter by started date (from)"),
-    started_to: datetime | None = Query(None, description="Filter by started date (to)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[AttendanceResponse]:
@@ -141,8 +138,6 @@ def list_attendances(
         property_id: Optional filter by property ID
         channel: Optional filter by channel
         status: Optional filter by status
-        started_from: Optional filter by started date (from)
-        started_to: Optional filter by started date (to)
         db: Database session
         current_user: Current authenticated user
 
@@ -158,8 +153,6 @@ def list_attendances(
         property_id=property_id,
         channel=channel,
         status=status,
-        started_from=started_from,
-        started_to=started_to,
     )
     
     # Serialize attendances with error handling

@@ -529,19 +529,12 @@ Responda APENAS com um JSON válido no formato:
                 )
                 return True
         
-        # Check for reactivation (long inactivity)
-        if existing_active_attendance.ended_at:
-            days_since_ended = (datetime.utcnow() - existing_active_attendance.ended_at.replace(tzinfo=None)).days
-            if days_since_ended >= AttendanceObjectiveService.REACTIVATION_THRESHOLD_DAYS:
+        # Check for reactivation (long inactivity based on updated_at)
+        if existing_active_attendance.updated_at:
+            days_since_updated = (datetime.utcnow() - existing_active_attendance.updated_at.replace(tzinfo=None)).days
+            if days_since_updated >= AttendanceObjectiveService.REACTIVATION_THRESHOLD_DAYS:
                 logger.info(
-                    f"Client {client_id} reactivated after {days_since_ended} days. Creating new attendance."
-                )
-                return True
-        elif existing_active_attendance.updated_at:
-            days_since_update = (datetime.utcnow() - existing_active_attendance.updated_at.replace(tzinfo=None)).days
-            if days_since_update >= AttendanceObjectiveService.REACTIVATION_THRESHOLD_DAYS:
-                logger.info(
-                    f"Client {client_id} reactivated after {days_since_update} days of inactivity. Creating new attendance."
+                    f"Client {client_id} reactivated after {days_since_updated} days of inactivity. Creating new attendance."
                 )
                 return True
         

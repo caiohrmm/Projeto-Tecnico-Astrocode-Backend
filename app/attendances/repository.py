@@ -40,20 +40,6 @@ class AttendanceRepository:
         """
         self.db = db
 
-    def _calculate_duration(self, started_at: datetime, ended_at: datetime | None) -> int | None:
-        """
-        Calculate duration in seconds.
-
-        Args:
-            started_at: Start datetime
-            ended_at: End datetime (nullable)
-
-        Returns:
-            Duration in seconds or None if ended_at is None
-        """
-        if ended_at is None:
-            return None
-        return int((ended_at - started_at).total_seconds())
 
     def get_active_attendance_by_client(self, client_id: uuid.UUID) -> Attendance | None:
         """
@@ -93,9 +79,6 @@ class AttendanceRepository:
             # Close all others as ABANDONED (objective changed, cycle abandoned)
             for attendance in active_attendances[1:]:
                 attendance.status = AttendanceStatus.ABANDONED
-                attendance.ended_at = datetime.utcnow()
-                if attendance.started_at:
-                    attendance.duration = self._calculate_duration(attendance.started_at, attendance.ended_at)
                 
                 self._add_timeline_event(
                     client_id=client_id,
@@ -105,7 +88,6 @@ class AttendanceRepository:
                     related_attendance_id=attendance.id,
                     event_data={
                         "reason": "multiple_active_fix",
-                        "closed_at": attendance.ended_at.isoformat() if attendance.ended_at else None,
                     },
                 )
             
@@ -132,9 +114,6 @@ class AttendanceRepository:
             return  # Already closed
         
         attendance.status = new_status
-        attendance.ended_at = datetime.utcnow()
-        if attendance.started_at:
-            attendance.duration = self._calculate_duration(attendance.started_at, attendance.ended_at)
         
         self._add_timeline_event(
             client_id=attendance.client_id,
@@ -145,7 +124,6 @@ class AttendanceRepository:
             event_data={
                 "previous_status": "ACTIVE",
                 "new_status": new_status.value,
-                "closed_at": attendance.ended_at.isoformat() if attendance.ended_at else None,
             },
         )
         
@@ -269,12 +247,6 @@ class AttendanceRepository:
         # Set objective if detected
         if objective:
             attendance_dict["objective"] = objective
-
-        # Calculate duration if ended_at is provided
-        started_at = attendance_dict.get("started_at")
-        ended_at = attendance_dict.get("ended_at")
-        if started_at and ended_at:
-            attendance_dict["duration"] = self._calculate_duration(started_at, ended_at)
 
         # Serialize updated_client_status to JSON string if provided
         if "updated_client_status" in attendance_dict and attendance_dict["updated_client_status"] is not None:
@@ -1008,8 +980,6 @@ class AttendanceRepository:
         property_id: uuid.UUID | None = None,
         channel: AttendanceChannel | None = None,
         status: AttendanceStatus | None = None,
-        started_from: datetime | None = None,
-        started_to: datetime | None = None,
     ) -> List[Attendance]:
         """
         Get all attendances with optional filtering and pagination.
@@ -1022,8 +992,6 @@ class AttendanceRepository:
             property_id: Optional filter by property ID
             channel: Optional filter by channel
             status: Optional filter by status
-            started_from: Optional filter by started date (from)
-            started_to: Optional filter by started date (to)
 
         Returns:
             List of attendance instances
@@ -1040,12 +1008,7 @@ class AttendanceRepository:
             stmt = stmt.where(Attendance.channel == channel)
         if status:
             stmt = stmt.where(Attendance.status == status)
-        if started_from:
-            stmt = stmt.where(Attendance.started_at >= started_from)
-        if started_to:
-            stmt = stmt.where(Attendance.started_at <= started_to)
-
-        stmt = stmt.offset(skip).limit(limit).order_by(Attendance.started_at.desc())
+        stmt = stmt.offset(skip).limit(limit).order_by(Attendance.created_at.desc())
         return list(self.db.scalars(stmt).all())
 
     def update(
@@ -1065,20 +1028,6 @@ class AttendanceRepository:
         """
         update_data = attendance_data.model_dump(exclude_unset=True)
 
-        # Validate dates if both are being updated or if ended_at is being updated
-        if "ended_at" in update_data or "started_at" in update_data:
-            # Get the dates (use updated value if provided, otherwise use existing)
-            started_at = update_data.get("started_at", attendance.started_at)
-            ended_at = update_data.get("ended_at", attendance.ended_at)
-            
-            # Validate that ended_at is not before started_at
-            if ended_at is not None and started_at is not None:
-                if ended_at < started_at:
-                    raise ValueError("ended_at cannot be before started_at")
-            
-            # Recalculate duration if ended_at is being updated
-            if "ended_at" in update_data:
-                update_data["duration"] = self._calculate_duration(started_at, ended_at)
 
         # Serialize updated_client_status to JSON string if provided
         if "updated_client_status" in update_data and update_data["updated_client_status"] is not None:
@@ -1095,7 +1044,7 @@ class AttendanceRepository:
         )
 
         # Check if fields that affect AI summary are being updated
-        ai_relevant_fields = ["raw_content", "started_at", "ended_at", "property_id", "client_id"]
+        ai_relevant_fields = ["raw_content", "property_id", "client_id"]
         ai_relevant_changed = any(field in update_data for field in ai_relevant_fields)
         
         # If AI-relevant fields changed and attendance is already completed, we need to regenerate AI summary
@@ -1122,13 +1071,6 @@ class AttendanceRepository:
 
         # Process AI summary if status changed to COMPLETED
         if status_changed_to_completed:
-            # Ensure ended_at is set if not provided
-            if not attendance.ended_at:
-                from datetime import datetime
-                attendance.ended_at = datetime.utcnow()
-                attendance.duration = self._calculate_duration(attendance.started_at, attendance.ended_at)
-                self.db.flush()
-
             # Trigger AI processing for completed attendance
             self._process_completed_attendance(attendance)
         elif should_regen_ai:
