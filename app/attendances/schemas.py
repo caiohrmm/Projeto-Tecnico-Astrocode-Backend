@@ -31,8 +31,6 @@ class AttendanceBase(BaseModel):
         description="Clear objective of this interaction cycle (e.g., 'Purchase residential property in City X'). Can be auto-detected from content if not provided.",
     )
     channel: AttendanceChannel = Field(..., description="Communication channel")
-    started_at: datetime = Field(..., description="When the attendance cycle started")
-    ended_at: datetime | None = Field(None, description="When the attendance cycle ended")
     raw_content: str = Field(
         ...,
         min_length=1,
