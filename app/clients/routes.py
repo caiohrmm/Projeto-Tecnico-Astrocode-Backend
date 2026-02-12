@@ -20,6 +20,8 @@ from app.clients.schemas import (
     LeadClassificationResult,
 )
 from app.db import get_db
+from app.properties.repository import PropertyRepository
+from app.properties.schemas import PropertyResponse
 from app.users.models import User
 
 router = APIRouter(prefix="/clients", tags=["clients"])
@@ -419,5 +421,71 @@ def apply_classification(
     updated_client = repository.update(client, update_data)
     
     return ClientResponse.model_validate(updated_client)
+
+
+@router.get(
+    "/{client_id}/recommended-properties",
+    response_model=List[PropertyResponse],
+    status_code=status.HTTP_200_OK,
+)
+def get_recommended_properties(
+    client_id: uuid.UUID,
+    limit: int = Query(5, ge=1, le=20, description="Maximum number of properties to return"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> List[PropertyResponse]:
+    """
+    Get recommended properties for a client based on their preferences.
+    
+    Uses client's current preferences:
+    - current_interest_type (BUY/RENT)
+    - current_property_type (HOUSE/APARTMENT/etc)
+    - current_city_interest
+    - current_budget_min and current_budget_max
+    
+    Args:
+        client_id: Client UUID
+        limit: Maximum number of properties to return (default: 5, max: 20)
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        List of recommended properties matching client preferences
+        
+    Raises:
+        HTTPException: If client not found
+    """
+    client_repo = ClientRepository(db)
+    client = client_repo.get_by_id(client_id)
+    
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Client not found",
+        )
+    
+    # Get client preferences
+    interest_type = client.current_interest_type.value if client.current_interest_type else None
+    property_type = client.current_property_type
+    city = client.current_city_interest
+    budget_min = float(client.current_budget_min) if client.current_budget_min else None
+    budget_max = float(client.current_budget_max) if client.current_budget_max else None
+    
+    # If no preferences set, return empty list
+    if not any([interest_type, property_type, city, budget_min, budget_max]):
+        return []
+    
+    # Find recommended properties
+    property_repo = PropertyRepository(db)
+    properties = property_repo.find_recommended_properties(
+        interest_type=interest_type,
+        property_type=property_type,
+        city=city,
+        budget_min=budget_min,
+        budget_max=budget_max,
+        limit=limit,
+    )
+    
+    return [PropertyResponse.model_validate(prop) for prop in properties]
 
 

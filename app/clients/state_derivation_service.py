@@ -352,23 +352,31 @@ class ClientStateDerivationService:
             if cluster_scores:
                 best_attendance_id, best_cluster_signals, best_cluster_score = cluster_scores[0]
                 
+                # Check if client has any values set
+                has_any_values = (
+                    client.current_interest_type is not None or
+                    client.current_city_interest is not None or
+                    client.current_property_type is not None or
+                    client.current_budget_min is not None or
+                    client.current_budget_max is not None
+                )
+                
                 # Anti-flip: Only suggest changes if new cluster is significantly better
+                # BUT: If client has no values set, allow any valid cluster (score > 0)
                 score_difference = best_cluster_score - current_cluster_score
                 
-                if score_difference >= ClientStateDerivationService.MIN_CLUSTER_SCORE_DIFFERENCE:
-                    # New cluster is significantly better, extract suggestions
-                    for signal in best_cluster_signals:
-                        suggestion = ClientStateDerivationService._create_suggestion_from_signal(
-                            client=client,
-                            signal=signal,
-                            reference_time=reference_time,
-                            cluster_context=True,
-                            cluster_size=len(best_cluster_signals),
-                            current_cluster_score=current_cluster_score,
-                            new_cluster_score=best_cluster_score,
+                should_apply = False
+                if not has_any_values:
+                    # Client has no values, allow any valid cluster
+                    if best_cluster_score > 0:
+                        should_apply = True
+                        logger.info(
+                            f"Client has no values set, applying best cluster "
+                            f"(score: {best_cluster_score:.3f})"
                         )
-                        if suggestion:
-                            suggestions.append(suggestion)
+                elif score_difference >= ClientStateDerivationService.MIN_CLUSTER_SCORE_DIFFERENCE:
+                    # New cluster is significantly better
+                    should_apply = True
                 else:
                     # New cluster is not significantly better, keep current state
                     logger.info(
@@ -377,6 +385,85 @@ class ClientStateDerivationService:
                         f"Keeping current client state to avoid oscillation. "
                         f"Current: {current_cluster_score:.3f}, New: {best_cluster_score:.3f}"
                     )
+                
+                if should_apply:
+                    # Extract suggestions for ALL fields from all signals in the best cluster
+                    # Create suggestions for each field from all signals in the cluster
+                    for signal in best_cluster_signals:
+                        # Create suggestion for interest_type if present
+                        if signal.interest_type:
+                            suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                                client=client,
+                                signal=signal,
+                                reference_time=reference_time,
+                                field_name="interest_type",
+                                cluster_context=True,
+                                cluster_size=len(best_cluster_signals),
+                                current_cluster_score=current_cluster_score,
+                                new_cluster_score=best_cluster_score,
+                            )
+                            if suggestion:
+                                suggestions.append(suggestion)
+                        
+                        # Create suggestion for property_type if present
+                        if signal.property_type:
+                            suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                                client=client,
+                                signal=signal,
+                                reference_time=reference_time,
+                                field_name="property_type",
+                                cluster_context=True,
+                                cluster_size=len(best_cluster_signals),
+                                current_cluster_score=current_cluster_score,
+                                new_cluster_score=best_cluster_score,
+                            )
+                            if suggestion:
+                                suggestions.append(suggestion)
+                        
+                        # Create suggestion for city if present
+                        if signal.city:
+                            suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                                client=client,
+                                signal=signal,
+                                reference_time=reference_time,
+                                field_name="city_interest",
+                                cluster_context=True,
+                                cluster_size=len(best_cluster_signals),
+                                current_cluster_score=current_cluster_score,
+                                new_cluster_score=best_cluster_score,
+                            )
+                            if suggestion:
+                                suggestions.append(suggestion)
+                        
+                        # Create suggestion for budget_min if present
+                        if signal.budget_min is not None:
+                            suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                                client=client,
+                                signal=signal,
+                                reference_time=reference_time,
+                                field_name="budget_min",
+                                cluster_context=True,
+                                cluster_size=len(best_cluster_signals),
+                                current_cluster_score=current_cluster_score,
+                                new_cluster_score=best_cluster_score,
+                            )
+                            if suggestion:
+                                suggestions.append(suggestion)
+                        
+                        # Create suggestion for budget_max if present
+                        if signal.budget_max is not None:
+                            suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                                client=client,
+                                signal=signal,
+                                reference_time=reference_time,
+                                field_name="budget_max",
+                                cluster_context=True,
+                                cluster_size=len(best_cluster_signals),
+                                current_cluster_score=current_cluster_score,
+                                new_cluster_score=best_cluster_score,
+                            )
+                            if suggestion:
+                                suggestions.append(suggestion)
         else:
             # Fallback: original field-by-field logic (for backward compatibility)
             field_signals = {
@@ -615,7 +702,11 @@ class ClientStateDerivationService:
         current_value = getattr(client, f"current_{field_name}", None)
         
         # Only suggest if value is different
-        if current_value == suggested_value:
+        # For city, use case-insensitive comparison
+        if field_name == "city_interest" and current_value and suggested_value:
+            if current_value.lower().strip() == suggested_value.lower().strip():
+                return None
+        elif current_value == suggested_value:
             return None
         
         # Build reason

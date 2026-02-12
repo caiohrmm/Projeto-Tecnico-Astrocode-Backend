@@ -68,7 +68,7 @@ class ClientJourneyService:
         attendances = list(db.scalars(
             select(Attendance)
             .where(Attendance.client_id == client_id)
-            .order_by(Attendance.started_at.desc())
+            .order_by(Attendance.created_at.desc())
         ).all())
         
         # Get all AI summaries for this client
@@ -140,12 +140,11 @@ class ClientJourneyService:
                     "id": str(a.id),
                     "channel": a.channel.value if a.channel else None,
                     "status": a.status.value if a.status else None,
-                    "started_at": a.started_at.isoformat() if a.started_at else None,
-                    "ended_at": a.ended_at.isoformat() if a.ended_at else None,
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                    "updated_at": a.updated_at.isoformat() if a.updated_at else None,
                     "raw_content": a.raw_content,
                     "ai_summary": a.ai_summary,
                     "ai_next_steps": a.ai_next_steps,
-                    "duration_minutes": (a.ended_at - a.started_at).total_seconds() / 60 if a.ended_at and a.started_at else None,
                 }
                 for a in attendances
             ],
@@ -478,7 +477,7 @@ class ClientJourneyService:
 - Visitas realizadas: {context['insights']['completed_visits']}
 
 ## HISTÓRICO DE ATENDIMENTOS
-{chr(10).join([f"- [{a['started_at'][:10] if a['started_at'] else 'N/A'}] {a['ai_summary'] or a['raw_content'][:100]}" for a in context['attendances'][:5]])}
+{chr(10).join([f"- [{a['created_at'][:10] if a['created_at'] else 'N/A'}] {a['ai_summary'] or a['raw_content'][:100]}" for a in context['attendances'][:5]])}
 
 ## RESUMOS DA IA
 {chr(10).join([f"- Intenção: {s['detected_intent']}, Sentimento: {s['sentiment']}, Score: {s['lead_score_suggested']}" for s in context['ai_summaries'][:5]])}

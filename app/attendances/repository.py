@@ -791,6 +791,18 @@ class AttendanceRepository:
             client_repo.update(client, client_update)
             return
         
+        # Helper function to convert values to JSON-serializable types
+        def json_serializable_value(value):
+            """Convert value to JSON-serializable type."""
+            from decimal import Decimal
+            if value is None:
+                return None
+            elif isinstance(value, Decimal):
+                return float(value)
+            elif hasattr(value, 'value'):  # Enum
+                return value.value
+            return value
+        
         # Prepare update data from suggestions
         update_data = {}
         old_values = {}  # Track changes for timeline
@@ -801,7 +813,7 @@ class AttendanceRepository:
             
             # Only apply if value is different
             if current_value != suggestion.suggested_value:
-                old_values[field_name] = current_value
+                old_values[field_name] = json_serializable_value(current_value)
                 update_data[field_name] = suggestion.suggested_value
         
         # Update current_status based on detected intent and context (legacy logic for status progression)
@@ -855,6 +867,12 @@ class AttendanceRepository:
                         change_desc += f" (Confiança: {source_info['confidence']:.2f})"
                     changes_description.append(change_desc)
                 
+                # Convert new_values to JSON-serializable format
+                new_values_serializable = {}
+                for k, v in update_data.items():
+                    if k in old_values:
+                        new_values_serializable[k] = json_serializable_value(v)
+                
                 self._add_timeline_event(
                     client_id=client_id,
                     event_type=TimelineEventType.CLIENT_UPDATED_BY_AI,
@@ -862,7 +880,7 @@ class AttendanceRepository:
                     description="; ".join(changes_description),
                     event_data={
                         "old_values": old_values,
-                        "new_values": {k: v for k, v in update_data.items() if k in old_values},
+                        "new_values": new_values_serializable,
                         "field_sources": field_sources,
                         "signals_count": derivation_result.get("signals_count", 0),
                         "traceability": derivation_result.get("traceability", {}),

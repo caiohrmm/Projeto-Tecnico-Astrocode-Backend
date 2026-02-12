@@ -134,7 +134,7 @@ class PropertyRepository:
         Returns:
             List of recommended property instances, ranked by relevance
         """
-        from sqlalchemy import and_, or_
+        from sqlalchemy import and_, or_, func
 
         stmt = select(Property)
 
@@ -161,14 +161,20 @@ class PropertyRepository:
         if property_type:
             stmt = stmt.where(Property.property_type == property_type)
 
-        # Filter by city (case-insensitive, flexible matching)
+        # Filter by city (case-insensitive, exact matching only)
         if city:
             # Normalize city name for better matching
             city_normalized = city.strip().title()
+            city_lower = city.strip().lower()
+            # Use exact match only to prevent matching wrong cities
+            # This prevents matching "Santa Cruz do Rio Pardo" when searching for "Manduri"
+            # Only match if the city name matches exactly (case-insensitive)
+            # Use ilike with exact match (no wildcards) for case-insensitive comparison
             stmt = stmt.where(
                 or_(
-                    Property.city.ilike(f"%{city_normalized}%"),
-                    Property.city.ilike(f"%{city.strip()}%"),
+                    Property.city.ilike(city_normalized),  # Exact match (normalized title case)
+                    Property.city.ilike(city_lower),  # Exact match (lowercase)
+                    func.lower(func.trim(Property.city)) == city_lower,  # Exact match with trim
                 )
             )
 

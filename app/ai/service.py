@@ -578,10 +578,12 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
         
         # Try uppercase patterns first (more reliable for city names)
         uppercase_patterns = [
+            # "na cidade de Manduri" - specific pattern for this common case (highest priority)
+            r"na\s+cidade\s+(?:de|do|da)?\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
+            # "cidade de Manduri" - improved to capture city after "cidade de"
+            r"cidade\s+(?:de|do|da)?\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
             # "em Manduri", "em São Paulo", etc.
             r"(?:em|na|no|para)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
-            # "cidade de Manduri"
-            r"cidade\s+(?:de|do|da)?\s*([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
             # "morar em Manduri"
             r"morar\s+em\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
             # "imóvel em Manduri"
@@ -607,8 +609,10 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
         # Also check for cities mentioned with lowercase after prepositions
         # This catches cases like "em manduri" (lowercase)
         lowercase_patterns = [
-            r"(?:em|na|no|para)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
+            # "na cidade de manduri" - specific pattern for lowercase (highest priority)
+            r"na\s+cidade\s+(?:de|do|da)?\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
             r"cidade\s+(?:de|do|da)?\s+([a-zà-ú]+(?:\s+[a-zà-ú]+)*)",
+            r"(?:em|na|no|para)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
         ]
         
         for pattern in lowercase_patterns:
