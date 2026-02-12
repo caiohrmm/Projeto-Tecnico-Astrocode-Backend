@@ -377,15 +377,8 @@ class AttendanceRepository:
         # - Only regenerate if content changed significantly (e.g., >20% new content)
         # - Or mark as PENDING and process async to avoid blocking
         # - Or use incremental updates instead of full regeneration
-        # For now: regenerate on every update (simple but potentially costly)
-        ai_repo = AISummaryRepository(self.db)
-        existing_ai_summary = ai_repo.get_by_attendance_id(existing_attendance.id)
-        if existing_ai_summary:
-            # Mark as REPROCESSING instead of deleting (preserves history)
-            existing_ai_summary.status = AISummaryStatus.REPROCESSING
-            self.db.flush()
-        
-        # Generate new AI summary with accumulated content
+        # Regenerate AI summary with accumulated content
+        # _generate_ai_summary will update existing summary or create new one
         self._generate_ai_summary(existing_attendance)
         
         # Add timeline event for conversation update
@@ -646,28 +639,53 @@ class AttendanceRepository:
 
     def _generate_ai_summary(self, attendance: Attendance) -> None:
         """
-        Generate and save AI summary for attendance (legacy method for creation).
-
-        This method is called when creating a new attendance.
-        For completed attendances, use _process_completed_attendance instead.
+        Generate and save AI summary for attendance.
+        
+        If an AI summary already exists for this attendance, it will be updated.
+        Otherwise, a new one will be created.
 
         Args:
             attendance: Attendance instance
         """
         try:
-            # Generate AI summary using AI service (without recommendations for new attendances)
-            # Pass None for db to skip property recommendations
-            ai_data = AISummaryService.generate_summary(attendance, db=None)
-
-            # Create AI summary record
-            summary_data = AISummaryCreate(
-                attendance_id=attendance.id,
-                client_id=attendance.client_id,
-                **ai_data,
-            )
-
             ai_repo = AISummaryRepository(self.db)
-            ai_summary = ai_repo.create(summary_data)
+            
+            # Check if AI summary already exists
+            existing_summary = ai_repo.get_by_attendance_id(attendance.id)
+            
+            # Generate AI summary using AI service
+            # Pass db for property recommendations
+            ai_data = AISummaryService.generate_summary(attendance, db=self.db)
+
+            if existing_summary:
+                # Update existing summary
+                from app.ai.schemas import AISummaryUpdate
+                summary_update = AISummaryUpdate(
+                    summary_text=ai_data.get("summary_text"),
+                    key_points=ai_data.get("key_points"),
+                    recommended_properties=ai_data.get("recommended_properties"),
+                    detected_intent=ai_data.get("detected_intent"),
+                    interest_type_detected=ai_data.get("interest_type_detected"),
+                    budget_min_detected=ai_data.get("budget_min_detected"),
+                    budget_max_detected=ai_data.get("budget_max_detected"),
+                    urgency_level_detected=ai_data.get("urgency_level_detected"),
+                    lead_score_suggested=ai_data.get("lead_score_suggested"),
+                    sentiment=ai_data.get("sentiment"),
+                    model_used=ai_data.get("model_used"),
+                    prompt_version=ai_data.get("prompt_version"),
+                    confidence_score=ai_data.get("confidence_score"),
+                    status=ai_data.get("status"),
+                    error_message=ai_data.get("error_message"),
+                )
+                ai_summary = ai_repo.update(existing_summary, summary_update)
+            else:
+                # Create new AI summary record
+                summary_data = AISummaryCreate(
+                    attendance_id=attendance.id,
+                    client_id=attendance.client_id,
+                    **ai_data,
+                )
+                ai_summary = ai_repo.create(summary_data)
 
             # Update attendance's ai_summary and ai_next_steps fields for backward compatibility
             if ai_summary.status.value == "COMPLETED":
@@ -740,6 +758,13 @@ class AttendanceRepository:
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error generating AI summary for attendance {attendance.id}: {e}", exc_info=True)
+            
+            # Rollback transaction to clear any pending state
+            try:
+                self.db.rollback()
+            except Exception:
+                pass  # Ignore rollback errors
+            
             # Store error in attendance field
             attendance.ai_summary = f"Erro ao gerar resumo da IA: {str(e)}"
 
