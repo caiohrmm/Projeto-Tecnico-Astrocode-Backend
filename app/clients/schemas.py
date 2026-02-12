@@ -64,7 +64,7 @@ class ClientCreate(ClientBase):
         None,
         ge=0,
         le=100,
-        description="Lead score from 0 to 100 (calculated automatically if AI enabled)",
+        description="Lead score from 0 to 100 (controlled exclusively by AI)",
     )
     current_urgency_level: UrgencyLevel | None = Field(
         None,
@@ -139,7 +139,7 @@ class ClientUpdate(BaseModel):
         None,
         ge=0,
         le=100,
-        description="Lead score (calculated automatically, ignored if provided)",
+        description="Lead score (controlled exclusively by AI - ignored if provided manually)",
     )
     current_urgency_level: UrgencyLevel | None = None
 

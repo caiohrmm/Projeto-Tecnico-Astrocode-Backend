@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.clients.models import Client, LeadSource
 from app.clients.schemas import ClientCreate, ClientUpdate
-from app.clients.score_service import LeadScoreService
 
 
 class ClientRepository:
@@ -48,16 +47,18 @@ class ClientRepository:
         if "current_status" not in client_dict or client_dict["current_status"] is None:
             client_dict["current_status"] = ClientStatus.NEW_LEAD
         
-        # Remove manual lead_score if provided (will be calculated automatically)
-        if "current_lead_score" in client_dict:
-            client_dict.pop("current_lead_score")
+        # Lead score is controlled exclusively by AI
+        # If provided, it should come from AI classification (initial score)
+        # Otherwise, it will be set later by AI through state derivation
+        # Do NOT remove it if provided - it's from AI classification
         
         db_client = Client(**client_dict)
         self.db.add(db_client)
         self.db.flush()  # Flush to get the client ID
         
-        # Calculate and set lead score automatically
-        db_client.current_lead_score = LeadScoreService.calculate_lead_score(db_client)
+        # Lead score is controlled by AI:
+        # 1. Initial score from AI classification (if use_ai_classification=True)
+        # 2. Ongoing updates from AISummary signals via state derivation
         
         self.db.commit()
         self.db.refresh(db_client)
@@ -153,15 +154,18 @@ class ClientRepository:
         """
         update_data = client_data.model_dump(exclude_unset=True)
         
-        # Remove manual lead_score if provided (will be recalculated automatically)
+        # Remove manual lead_score if provided (AI controls this field completely)
+        # Lead score is only updated by AI through state derivation or classification
         if "current_lead_score" in update_data:
             update_data.pop("current_lead_score")
         
         for field, value in update_data.items():
             setattr(client, field, value)
         
-        # Recalculate lead score after update
-        client.current_lead_score = LeadScoreService.calculate_lead_score(client)
+        # Do NOT recalculate lead score manually
+        # Lead score is controlled exclusively by AI through:
+        # 1. AI classification (initial score)
+        # 2. State derivation from AISummary signals (ongoing updates)
         
         self.db.commit()
         self.db.refresh(client)

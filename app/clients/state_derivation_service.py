@@ -748,6 +748,7 @@ class ClientStateDerivationService:
         - Check timeline events for AI updates
         - If field was updated via AI timeline event recently, consider it AI-set
         - Otherwise, assume it might be manually set if it has a value
+        - Lead score is ALWAYS controlled by AI, never manually set
         
         TODO: Future improvement - add field_source tracking to Client model:
         - Add JSONB field: field_sources = {"current_interest_type": "HUMAN", "current_city": "AI", ...}
@@ -764,6 +765,10 @@ class ClientStateDerivationService:
             True if field appears to be manually set, False otherwise
         """
         from app.clients.timeline_models import ClientTimeline, TimelineEventType
+        
+        # Lead score is ALWAYS controlled by AI, never manually set
+        if field_name == "current_lead_score":
+            return False
         
         current_value = getattr(client, field_name, None)
         if current_value is None:
