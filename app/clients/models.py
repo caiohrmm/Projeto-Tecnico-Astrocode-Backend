@@ -89,7 +89,6 @@ class Client(Base):
         # Relationship Management
         first_contact_at: Date of first contact
         last_contact_at: Date of last contact
-        next_follow_up_at: Scheduled next follow-up date
         summary_notes: Summary notes about the client
         
         # Timestamps
@@ -179,11 +178,6 @@ class Client(Base):
         index=True,
     )
     last_contact_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        index=True,
-    )
-    next_follow_up_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         index=True,

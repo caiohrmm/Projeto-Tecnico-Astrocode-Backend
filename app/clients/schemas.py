@@ -105,10 +105,6 @@ class ClientCreate(ClientBase):
         None,
         description="Date of last contact",
     )
-    next_follow_up_at: datetime | None = Field(
-        None,
-        description="Scheduled next follow-up date",
-    )
     summary_notes: str | None = Field(
         None,
         description="Summary notes about the client",
@@ -157,7 +153,6 @@ class ClientUpdate(BaseModel):
     # Relationship Management
     first_contact_at: datetime | None = None
     last_contact_at: datetime | None = None
-    next_follow_up_at: datetime | None = None
     summary_notes: str | None = None
     
     # State Derivation Tracking (set automatically by system)
@@ -205,7 +200,6 @@ class ClientResponse(ClientBase):
     # Relationship Management
     first_contact_at: datetime | None = None
     last_contact_at: datetime | None = None
-    next_follow_up_at: datetime | None = None
     summary_notes: str | None = None
     initial_message: str | None = Field(
         None,

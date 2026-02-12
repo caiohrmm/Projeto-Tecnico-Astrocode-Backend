@@ -55,9 +55,6 @@ class TimelineEventType(str, enum.Enum):
     # AI Updates
     CLIENT_UPDATED_BY_AI = "CLIENT_UPDATED_BY_AI"
     
-    # Follow-up
-    FOLLOW_UP_SCHEDULED = "FOLLOW_UP_SCHEDULED"
-    FOLLOW_UP_COMPLETED = "FOLLOW_UP_COMPLETED"
     
     # General
     NOTE_ADDED = "NOTE_ADDED"

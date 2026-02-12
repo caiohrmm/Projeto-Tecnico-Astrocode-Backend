@@ -306,7 +306,7 @@ RESUMO:"""
         elif any(word in content_lower for word in ["reclamar", "problema", "erro", "insatisfeito"]):
             return DetectedIntent.COMPLAINT
         elif any(word in content_lower for word in ["retorno", "ligar", "contato", "falar"]):
-            return DetectedIntent.FOLLOW_UP
+            return DetectedIntent.GENERAL_INQUIRY
         else:
             return DetectedIntent.GENERAL_INQUIRY
 

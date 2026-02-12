@@ -131,7 +131,6 @@ class ClientJourneyService:
                 "current_city_interest": client.current_city_interest,
                 "first_contact_at": client.first_contact_at.isoformat() if client.first_contact_at else None,
                 "last_contact_at": client.last_contact_at.isoformat() if client.last_contact_at else None,
-                "next_follow_up_at": client.next_follow_up_at.isoformat() if client.next_follow_up_at else None,
                 "summary_notes": client.summary_notes,
                 "created_at": client.created_at.isoformat(),
             },
@@ -362,18 +361,6 @@ class ClientJourneyService:
         client = context["client"]
         
         actions = []
-        
-        # High priority: Follow-up overdue
-        if client.get("next_follow_up_at"):
-            follow_up_date = datetime.fromisoformat(client["next_follow_up_at"])
-            if follow_up_date < datetime.utcnow():
-                actions.append({
-                    "priority": "HIGH",
-                    "action": "FOLLOW_UP",
-                    "title": "Follow-up atrasado",
-                    "description": f"O follow-up estava agendado para {follow_up_date.strftime('%d/%m/%Y')}. Entre em contato imediatamente.",
-                    "suggested_channel": "PHONE",
-                })
         
         # High priority: No contact in 7+ days for active lead
         if insights["days_since_contact"] and insights["days_since_contact"] >= 7:

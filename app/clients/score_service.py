@@ -142,8 +142,6 @@ class LeadScoreService:
             score += 3
         if client.last_contact_at is not None:
             score += 3
-        if client.next_follow_up_at is not None:
-            score += 3
         if client.summary_notes is not None and client.summary_notes.strip():
             score += 2
 

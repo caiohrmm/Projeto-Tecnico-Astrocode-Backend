@@ -464,7 +464,6 @@ class AttendanceRepository:
                         "SCHEDULE_VISIT": "Agendar visita",
                         "PRICE_NEGOTIATION": "Negociar preço",
                         "INFORMATION_REQUEST": "Enviar informações solicitadas",
-                        "FOLLOW_UP": "Fazer follow-up",
                     }
                     intent_label = intent_labels.get(ai_summary.detected_intent.value, "Acompanhar cliente")
                     next_steps.append(intent_label)
@@ -672,7 +671,6 @@ class AttendanceRepository:
                         "SCHEDULE_VISIT": "Agendar visita para conhecer imóveis",
                         "PRICE_NEGOTIATION": "Negociar valores e condições",
                         "INFORMATION_REQUEST": "Enviar informações detalhadas",
-                        "FOLLOW_UP": "Realizar follow-up de acompanhamento",
                         "DOCUMENTATION_REQUEST": "Preparar documentação solicitada",
                         "COMPLAINT": "Resolver reclamação apresentada",
                         "GENERAL_INQUIRY": "Acompanhar interesse do cliente",

@@ -46,7 +46,6 @@ class DetectedIntent(str, enum.Enum):
     DOCUMENTATION_REQUEST = "DOCUMENTATION_REQUEST"
     GENERAL_INQUIRY = "GENERAL_INQUIRY"
     COMPLAINT = "COMPLAINT"
-    FOLLOW_UP = "FOLLOW_UP"
 
 
 class AISummary(Base):
