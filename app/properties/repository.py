@@ -136,11 +136,14 @@ class PropertyRepository:
         """
         from sqlalchemy import and_, or_, func
 
+        import logging
+        logger = logging.getLogger(__name__)
+        
         stmt = select(Property)
 
         # Only show published properties
         stmt = stmt.where(Property.status == PropertyStatus.PUBLISHED)
-
+        
         # Filter by business type based on interest
         if interest_type == "BUY":
             stmt = stmt.where(
@@ -161,20 +164,26 @@ class PropertyRepository:
         if property_type:
             stmt = stmt.where(Property.property_type == property_type)
 
-        # Filter by city (case-insensitive, exact matching only)
+        # Filter by city (case-insensitive, flexible matching)
         if city:
             # Normalize city name for better matching
             city_normalized = city.strip().title()
             city_lower = city.strip().lower()
-            # Use exact match only to prevent matching wrong cities
-            # This prevents matching "Santa Cruz do Rio Pardo" when searching for "Manduri"
-            # Only match if the city name matches exactly (case-insensitive)
-            # Use ilike with exact match (no wildcards) for case-insensitive comparison
+            # Use flexible matching: exact match or contains (for better results)
+            # This helps find properties even with slight variations in city name
+            # Also try without accents/diacritics for better matching
+            import unicodedata
+            city_no_accents = ''.join(
+                c for c in unicodedata.normalize('NFD', city_lower)
+                if unicodedata.category(c) != 'Mn'
+            )
+            
             stmt = stmt.where(
                 or_(
-                    Property.city.ilike(city_normalized),  # Exact match (normalized title case)
-                    Property.city.ilike(city_lower),  # Exact match (lowercase)
-                    func.lower(func.trim(Property.city)) == city_lower,  # Exact match with trim
+                    func.lower(func.trim(Property.city)) == city_lower,  # Exact match (case-insensitive, trimmed)
+                    Property.city.ilike(f"%{city_normalized}%"),  # Contains match (normalized)
+                    Property.city.ilike(f"%{city_lower}%"),  # Contains match (lowercase)
+                    func.lower(func.trim(Property.city)).like(f"%{city_no_accents}%"),  # Match without accents
                 )
             )
 
@@ -221,8 +230,10 @@ class PropertyRepository:
 
         # Order by relevance (published properties first, then by creation date)
         stmt = stmt.order_by(Property.created_at.desc()).limit(limit)
+        
+        final_properties = list(self.db.scalars(stmt).all())
 
-        return list(self.db.scalars(stmt).all())
+        return final_properties
 
     def update(
         self,

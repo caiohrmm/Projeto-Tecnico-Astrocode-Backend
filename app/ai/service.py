@@ -776,8 +776,8 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
                 logger.info(f"No properties found matching criteria for client {client_id}")
                 return None
             
-            # Return list of property IDs
-            property_ids = [prop.id for prop in properties]
+            # Return list of property IDs as strings (for JSON serialization)
+            property_ids = [str(prop.id) for prop in properties]
             logger.info(f"Found {len(property_ids)} recommended properties for client {client_id}")
             return property_ids
             

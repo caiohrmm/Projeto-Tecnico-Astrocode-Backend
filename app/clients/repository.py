@@ -1,5 +1,6 @@
 """Client repository for database operations."""
 
+import logging
 import uuid
 from typing import List
 
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.clients.models import Client, LeadSource
 from app.clients.schemas import ClientCreate, ClientUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class ClientRepository:
@@ -141,6 +144,7 @@ class ClientRepository:
         self,
         client: Client,
         client_data: ClientUpdate,
+        allow_ai_lead_score_update: bool = False,
     ) -> Client:
         """
         Update client information.
@@ -148,6 +152,7 @@ class ClientRepository:
         Args:
             client: Client instance to update
             client_data: Update data (only provided fields will be updated)
+            allow_ai_lead_score_update: If True, allow lead_score updates (for AI-driven updates from state derivation)
 
         Returns:
             Updated client instance
@@ -156,8 +161,10 @@ class ClientRepository:
         
         # Remove manual lead_score if provided (AI controls this field completely)
         # Lead score is only updated by AI through state derivation or classification
+        # BUT: Allow updates when explicitly requested (from state derivation service)
         if "current_lead_score" in update_data:
-            update_data.pop("current_lead_score")
+            if not allow_ai_lead_score_update:
+                update_data.pop("current_lead_score")
         
         for field, value in update_data.items():
             setattr(client, field, value)

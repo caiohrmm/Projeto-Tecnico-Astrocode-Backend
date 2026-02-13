@@ -149,7 +149,7 @@ class ClientStateDerivationService:
         if attendance:
             attendance_status = attendance.status.value if attendance.status else None
         
-        return StructuredSignal(
+        signal = StructuredSignal(
             interest_type=interest_type,
             property_type=property_type,
             city=city,
@@ -165,6 +165,8 @@ class ClientStateDerivationService:
             sentiment=ai_summary.sentiment.value if ai_summary.sentiment else None,
             attendance_status=attendance_status,
         )
+        
+        return signal
     
     @staticmethod
     def get_all_signals_for_client(
@@ -464,6 +466,52 @@ class ClientStateDerivationService:
                             )
                             if suggestion:
                                 suggestions.append(suggestion)
+                        
+                        # Create suggestion for urgency_level if present
+                        if signal.urgency_level:
+                            suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                                client=client,
+                                signal=signal,
+                                reference_time=reference_time,
+                                field_name="urgency_level",
+                                cluster_context=True,
+                                cluster_size=len(best_cluster_signals),
+                                current_cluster_score=current_cluster_score,
+                                new_cluster_score=best_cluster_score,
+                            )
+                            if suggestion:
+                                suggestions.append(suggestion)
+                        
+                        # Create suggestion for lead_score if present (ALWAYS update lead_score from AI)
+                        # For lead_score, always use the most recent signal value, no anti-flip logic
+                        if signal.lead_score is not None:
+                            # For lead_score, always create suggestion directly without anti-flip checks
+                            # Use the most recent signal with highest confidence
+                            suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                                client=client,
+                                signal=signal,
+                                reference_time=reference_time,
+                                field_name="lead_score",
+                                cluster_context=True,
+                                cluster_size=len(best_cluster_signals),
+                                current_cluster_score=current_cluster_score,
+                                new_cluster_score=best_cluster_score,
+                            )
+                            if suggestion:
+                                suggestions.append(suggestion)
+                            else:
+                                # Fallback: create suggestion directly if _create_suggestion_from_signal returned None
+                                from app.clients.state_derivation_service import ClientStateSuggestion
+                                direct_suggestion = ClientStateSuggestion(
+                                    field_name="current_lead_score",
+                                    suggested_value=signal.lead_score,
+                                    confidence=signal.confidence_score,
+                                    source_attendance_id=signal.source_attendance_id,
+                                    source_ai_summary_id=signal.source_ai_summary_id,
+                                    detected_at=signal.detected_at,
+                                    reason=f"AI suggested lead_score from attendance {signal.source_attendance_id}",
+                                )
+                                suggestions.append(direct_suggestion)
         else:
             # Fallback: original field-by-field logic (for backward compatibility)
             field_signals = {
@@ -539,10 +587,10 @@ class ClientStateDerivationService:
                             )
                             break
                 
-                # Only suggest if new value is significantly better
-                score_difference = best_score - current_field_score
-                
-                if score_difference >= ClientStateDerivationService.MIN_FIELD_SCORE_DIFFERENCE:
+                # For lead_score, always update (no anti-flip logic)
+                # For other fields, only suggest if new value is significantly better
+                if field_name == "lead_score":
+                    # Always create suggestion for lead_score (AI-controlled, should always update)
                     suggestion = ClientStateDerivationService._create_suggestion_from_signal(
                         client=client,
                         signal=best_signal,
@@ -552,12 +600,38 @@ class ClientStateDerivationService:
                     )
                     if suggestion:
                         suggestions.append(suggestion)
+                    else:
+                        # Fallback: create direct suggestion if _create_suggestion_from_signal returned None
+                        from app.clients.state_derivation_service import ClientStateSuggestion
+                        direct_suggestion = ClientStateSuggestion(
+                            field_name="current_lead_score",
+                            suggested_value=best_signal.lead_score,
+                            confidence=best_signal.confidence_score,
+                            source_attendance_id=best_signal.source_attendance_id,
+                            source_ai_summary_id=best_signal.source_ai_summary_id,
+                            detected_at=best_signal.detected_at,
+                            reason=f"AI suggested lead_score from attendance {best_signal.source_attendance_id}",
+                        )
+                        suggestions.append(direct_suggestion)
                 else:
-                    logger.debug(
-                        f"Field {field_name} score difference ({score_difference:.3f}) below threshold "
-                        f"({ClientStateDerivationService.MIN_FIELD_SCORE_DIFFERENCE}). "
-                        f"Keeping current value to avoid oscillation."
-                    )
+                    score_difference = best_score - current_field_score
+                    
+                    if score_difference >= ClientStateDerivationService.MIN_FIELD_SCORE_DIFFERENCE:
+                        suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                            client=client,
+                            signal=best_signal,
+                            reference_time=reference_time,
+                            field_name=client_field_name,
+                            cluster_context=False,
+                        )
+                        if suggestion:
+                            suggestions.append(suggestion)
+                    else:
+                        logger.debug(
+                            f"Field {field_name} score difference ({score_difference:.3f}) below threshold "
+                            f"({ClientStateDerivationService.MIN_FIELD_SCORE_DIFFERENCE}). "
+                            f"Keeping current value to avoid oscillation."
+                        )
         
         return suggestions
     
@@ -701,9 +775,14 @@ class ClientStateDerivationService:
         # Extract current value
         current_value = getattr(client, f"current_{field_name}", None)
         
-        # Only suggest if value is different
-        # For city, use case-insensitive comparison
-        if field_name == "city_interest" and current_value and suggested_value:
+        # For lead_score, always create suggestion (AI-controlled, should always update)
+        # For other fields, only suggest if value is different
+        if field_name == "lead_score":
+            # Always create suggestion for lead_score, even if value is the same
+            # This ensures lead_score can be updated based on new context/confidence
+            pass
+        elif field_name == "city_interest" and current_value and suggested_value:
+            # For city, use case-insensitive comparison
             if current_value.lower().strip() == suggested_value.lower().strip():
                 return None
         elif current_value == suggested_value:
@@ -894,6 +973,7 @@ class ClientStateDerivationService:
                 "detected_at": suggestion.detected_at.isoformat(),
                 "reason": suggestion.reason,
             }
+        
         
         return {
             "suggestions": suggestions,

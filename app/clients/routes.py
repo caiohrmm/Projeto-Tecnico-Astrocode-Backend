@@ -417,8 +417,8 @@ def apply_classification(
     if classification.property_type:
         update_data.current_property_type = classification.property_type
     
-    # Apply update
-    updated_client = repository.update(client, update_data)
+    # Apply update - allow AI-driven lead_score updates from classification
+    updated_client = repository.update(client, update_data, allow_ai_lead_score_update=True)
     
     return ClientResponse.model_validate(updated_client)
 
@@ -470,6 +470,9 @@ def get_recommended_properties(
     city = client.current_city_interest
     budget_min = float(client.current_budget_min) if client.current_budget_min else None
     budget_max = float(client.current_budget_max) if client.current_budget_max else None
+    
+    import logging
+    logger = logging.getLogger(__name__)
     
     # If no preferences set, return empty list
     if not any([interest_type, property_type, city, budget_min, budget_max]):

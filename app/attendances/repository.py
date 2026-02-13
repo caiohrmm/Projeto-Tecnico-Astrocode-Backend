@@ -260,7 +260,20 @@ class AttendanceRepository:
         self.db.add(db_attendance)
         self.db.flush()  # Flush to get the attendance ID
 
-        # Generate AI summary automatically
+        # Store values before commit (needed for timeline event after commit)
+        attendance_id = db_attendance.id
+        client_id = db_attendance.client_id
+        channel_value = db_attendance.channel.value if db_attendance.channel else None
+        status_value = db_attendance.status.value if db_attendance.status else None
+
+        # Commit attendance FIRST to ensure it exists in database
+        # This must happen before _generate_ai_summary because it may create timeline events
+        self.db.commit()
+        
+        # Re-query attendance after commit (object is detached)
+        db_attendance = self.db.get(Attendance, attendance_id)
+
+        # Generate AI summary automatically (after commit to avoid foreign key issues)
         self._generate_ai_summary(db_attendance)
 
         # Update client status if provided
@@ -271,24 +284,29 @@ class AttendanceRepository:
         if attendance_data.scheduled_visit_at:
             self._create_visit_from_attendance(db_attendance)
 
-        # Add timeline event
+        # Create timeline event (after commit to avoid foreign key constraint violation)
         self._add_timeline_event(
-            client_id=db_attendance.client_id,
+            client_id=client_id,
             event_type=TimelineEventType.ATTENDANCE_STARTED,
             title="Novo ciclo de atendimento iniciado",
-            description=f"Objetivo: {objective or 'Não definido'} - Atendimento via {db_attendance.channel.value if db_attendance.channel else 'canal desconhecido'}",
-            related_attendance_id=db_attendance.id,
+            description=f"Objetivo: {objective or 'Não definido'} - Atendimento via {channel_value or 'canal desconhecido'}",
+            related_attendance_id=attendance_id,
             event_data={
-                "channel": db_attendance.channel.value if db_attendance.channel else None,
-                "status": db_attendance.status.value if db_attendance.status else None,
+                "channel": channel_value,
+                "status": status_value,
                 "objective": objective,
             },
+            auto_add=True,  # Safe to add now - attendance is already committed
         )
-
+        
+        # Commit timeline event
         self.db.commit()
-        self.db.refresh(db_attendance)
+        
+        # Re-query attendance from database (object is detached after commit)
+        db_attendance = self.db.get(Attendance, attendance_id)
+        
         logger.info(
-            f"Created new attendance {db_attendance.id} for client {db_attendance.client_id} "
+            f"Created new attendance {attendance_id} for client {client_id} "
             f"with objective: {objective}"
         )
         return db_attendance
@@ -589,7 +607,8 @@ class AttendanceRepository:
         event_data: dict | None = None,
         ai_generated: bool = False,
         importance: int = 3,
-    ) -> None:
+        auto_add: bool = True,
+    ) -> ClientTimeline | None:
         """
         Add a timeline event for the client.
         
@@ -601,9 +620,13 @@ class AttendanceRepository:
             related_attendance_id: Related attendance ID
             related_visit_id: Related visit ID
             related_property_id: Related property ID
-            metadata: Additional metadata
+            event_data: Additional event data
             ai_generated: Whether AI generated this event
             importance: Importance level (1-5)
+            auto_add: If True, add to session immediately. If False, return event for manual addition.
+        
+        Returns:
+            ClientTimeline event instance (or None if error)
         """
         try:
             event = ClientTimeline(
@@ -618,11 +641,12 @@ class AttendanceRepository:
                 ai_generated=ai_generated,
                 importance=importance,
             )
-            self.db.add(event)
+            if auto_add:
+                self.db.add(event)
+            return event
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error adding timeline event: {e}", exc_info=True)
+            logger.error(f"Error creating timeline event: {e}", exc_info=True)
+            return None
 
     def _generate_ai_summary(self, attendance: Attendance) -> None:
         """
@@ -643,6 +667,13 @@ class AttendanceRepository:
             # Generate AI summary using AI service
             # Pass db for property recommendations
             ai_data = AISummaryService.generate_summary(attendance, db=self.db)
+            
+            # Convert recommended_properties UUIDs to strings for JSON serialization
+            if ai_data.get('recommended_properties'):
+                ai_data['recommended_properties'] = [
+                    str(prop_id) if isinstance(prop_id, uuid.UUID) else prop_id
+                    for prop_id in ai_data['recommended_properties']
+                ]
 
             if existing_summary:
                 # Update existing summary
@@ -675,7 +706,8 @@ class AttendanceRepository:
                 ai_summary = ai_repo.create(summary_data)
 
             # Update attendance's ai_summary and ai_next_steps fields for backward compatibility
-            if ai_summary.status.value == "COMPLETED":
+            status_value = ai_summary.status.value if hasattr(ai_summary.status, 'value') else str(ai_summary.status)
+            if status_value == "COMPLETED":
                 attendance.ai_summary = ai_summary.summary_text
                 # Generate next steps from AI analysis
                 next_steps = []
@@ -733,7 +765,10 @@ class AttendanceRepository:
                 if next_steps:
                     attendance.ai_next_steps = "\n".join(f"• {step}" for step in next_steps)
                 
-                # Update client with AI-detected information
+                # Update client with AI-detected information GRADUALLY
+                # This happens every time an AI summary is generated/updated (not just when attendance is completed)
+                # This allows lead_score to increase gradually as more data is collected during the attendance cycle
+                # The ClientStateDerivationService uses cluster logic and anti-flip to ensure smooth, incremental updates
                 self._update_client_from_ai_summary(attendance.client_id, ai_summary)
             else:
                 # Even if failed, store error message
@@ -741,9 +776,10 @@ class AttendanceRepository:
 
         except Exception as e:
             # Log error but don't fail attendance creation
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error generating AI summary for attendance {attendance.id}: {e}", exc_info=True)
+            # Use module-level logger (already defined at top of file)
+            # Store attendance_id before accessing attendance (session may be in rollback)
+            attendance_id_str = str(attendance.id) if hasattr(attendance, 'id') and attendance.id else "unknown"
+            logger.error(f"Error generating AI summary for attendance {attendance_id_str}: {e}", exc_info=True)
             
             # Rollback transaction to clear any pending state
             try:
@@ -751,8 +787,12 @@ class AttendanceRepository:
             except Exception:
                 pass  # Ignore rollback errors
             
-            # Store error in attendance field
-            attendance.ai_summary = f"Erro ao gerar resumo da IA: {str(e)}"
+            # Store error in attendance field (only if attendance is still attached)
+            try:
+                if attendance and hasattr(attendance, 'ai_summary'):
+                    attendance.ai_summary = f"Erro ao gerar resumo da IA: {str(e)}"
+            except Exception:
+                pass  # Ignore if attendance is detached
 
     def _update_client_from_ai_summary(self, client_id: uuid.UUID, ai_summary: AISummary) -> None:
         """
@@ -793,6 +833,23 @@ class AttendanceRepository:
         field_sources = derivation_result.get("field_sources", {})
         signals_count = derivation_result.get("signals_count", 0)
         
+        # FALLBACK: If no lead_score suggestion was created but AI summary has lead_score_suggested,
+        # create a direct suggestion to ensure lead_score is updated
+        if ai_summary.lead_score_suggested is not None:
+            has_lead_score_suggestion = any(s.field_name == "current_lead_score" for s in suggestions)
+            if not has_lead_score_suggestion:
+                from app.clients.state_derivation_service import ClientStateSuggestion
+                direct_suggestion = ClientStateSuggestion(
+                    field_name="current_lead_score",
+                    suggested_value=ai_summary.lead_score_suggested,
+                    confidence=ai_summary.confidence_score or 0.8,
+                    source_attendance_id=ai_summary.attendance_id,
+                    source_ai_summary_id=ai_summary.id,
+                    detected_at=ai_summary.created_at,
+                    reason=f"Direct AI suggestion from summary {ai_summary.id} (fallback)",
+                )
+                suggestions.append(direct_suggestion)
+        
         if not suggestions:
             # No suggestions to apply, but still update last_contact_at and track derivation
             update_data = {
@@ -802,7 +859,7 @@ class AttendanceRepository:
                 "state_derived_from_attendances_count": signals_count,
             }
             client_update = ClientUpdate(**update_data)
-            client_repo.update(client, client_update)
+            client_repo.update(client, client_update, allow_ai_lead_score_update=False)
             return
         
         # Helper function to convert values to JSON-serializable types
@@ -825,8 +882,9 @@ class AttendanceRepository:
             field_name = suggestion.field_name
             current_value = getattr(client, field_name, None)
             
-            # Only apply if value is different
-            if current_value != suggestion.suggested_value:
+            # For lead_score, always apply (AI-controlled, should always update)
+            # For other fields, only apply if value is different
+            if field_name == "current_lead_score" or current_value != suggestion.suggested_value:
                 old_values[field_name] = json_serializable_value(current_value)
                 update_data[field_name] = suggestion.suggested_value
         
@@ -846,7 +904,8 @@ class AttendanceRepository:
 
         if update_data:
             client_update = ClientUpdate(**update_data)
-            client_repo.update(client, client_update)
+            # Allow AI-driven lead_score updates from state derivation
+            updated_client = client_repo.update(client, client_update, allow_ai_lead_score_update=True)
             
             # Add timeline event for AI-driven client update
             if old_values:

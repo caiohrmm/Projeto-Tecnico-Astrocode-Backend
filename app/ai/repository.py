@@ -38,6 +38,13 @@ class AISummaryRepository:
         if "status" not in summary_dict or summary_dict["status"] is None:
             summary_dict["status"] = AISummaryStatus.PENDING
 
+        # Convert recommended_properties UUIDs to strings for JSONB serialization
+        if "recommended_properties" in summary_dict and summary_dict["recommended_properties"]:
+            summary_dict["recommended_properties"] = [
+                str(prop_id) if isinstance(prop_id, uuid.UUID) else prop_id
+                for prop_id in summary_dict["recommended_properties"]
+            ]
+
         db_summary = AISummary(**summary_dict)
         self.db.add(db_summary)
         self.db.commit()
@@ -141,6 +148,13 @@ class AISummaryRepository:
             Updated AI summary instance
         """
         update_data = summary_data.model_dump(exclude_unset=True)
+
+        # Convert recommended_properties UUIDs to strings for JSONB serialization
+        if "recommended_properties" in update_data and update_data["recommended_properties"]:
+            update_data["recommended_properties"] = [
+                str(prop_id) if isinstance(prop_id, uuid.UUID) else prop_id
+                for prop_id in update_data["recommended_properties"]
+            ]
 
         for field, value in update_data.items():
             setattr(summary, field, value)
