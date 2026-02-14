@@ -45,6 +45,18 @@ class SaleRepository:
         if sale_data.commission_percentage:
             commission_value = sale_data.sale_value * sale_data.commission_percentage / 100
 
+        # Convert payment_methods to dict format for JSONB storage
+        payment_methods_data = None
+        if sale_data.payment_methods:
+            payment_methods_data = [
+                {
+                    "method": item.method.value if hasattr(item.method, 'value') else str(item.method),
+                    "value": float(item.value),
+                    "description": item.description,
+                }
+                for item in sale_data.payment_methods
+            ]
+        
         # Create sale record
         db_sale = Sale(
             client_id=sale_data.client_id,
@@ -57,6 +69,7 @@ class SaleRepository:
             commission_value=commission_value,
             down_payment=sale_data.down_payment,
             payment_method=sale_data.payment_method,
+            payment_methods=payment_methods_data,
             rent_duration_months=sale_data.rent_duration_months,
             rent_start_date=sale_data.rent_start_date,
             proposal_date=sale_data.proposal_date or datetime.utcnow(),
@@ -133,6 +146,17 @@ class SaleRepository:
         """
         update_dict = sale_data.model_dump(exclude_unset=True)
         old_status = sale.status
+
+        # Convert payment_methods to dict format for JSONB storage if present
+        if "payment_methods" in update_dict and update_dict["payment_methods"] is not None:
+            update_dict["payment_methods"] = [
+                {
+                    "method": item.method.value if hasattr(item.method, 'value') else str(item.method),
+                    "value": float(item.value),
+                    "description": item.description,
+                }
+                for item in update_dict["payment_methods"]
+            ]
 
         for field, value in update_dict.items():
             setattr(sale, field, value)

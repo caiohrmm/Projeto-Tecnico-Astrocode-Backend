@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -158,6 +158,12 @@ class Sale(Base):
     payment_method: Mapped[PaymentMethod | None] = mapped_column(
         Enum(PaymentMethod, native_enum=False, length=20),
         nullable=True,
+        comment="Legacy single payment method (deprecated, use payment_methods)",
+    )
+    payment_methods: Mapped[list[dict] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="List of payment methods with values. Format: [{'method': 'CASH', 'value': 100000.00, 'description': 'Entrada'}, ...]",
     )
 
     # Rent specific

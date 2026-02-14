@@ -31,6 +31,7 @@ def _enrich_sale_response(sale: Sale) -> dict:
         "commission_value": sale.commission_value,
         "down_payment": sale.down_payment,
         "payment_method": sale.payment_method,
+        "payment_methods": sale.payment_methods,
         "rent_duration_months": sale.rent_duration_months,
         "rent_start_date": sale.rent_start_date,
         "proposal_date": sale.proposal_date,

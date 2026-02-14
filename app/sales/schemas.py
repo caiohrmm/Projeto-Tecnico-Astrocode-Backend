@@ -9,6 +9,14 @@ from pydantic import BaseModel, Field, field_validator
 from app.sales.models import PaymentMethod, SaleStatus, SaleType
 
 
+class PaymentMethodItem(BaseModel):
+    """Schema for a single payment method item."""
+    
+    method: PaymentMethod = Field(..., description="Payment method type")
+    value: Decimal = Field(..., gt=0, description="Payment value for this method")
+    description: str | None = Field(None, description="Optional description for this payment method")
+
+
 class SaleBase(BaseModel):
     """Base schema for Sale."""
 
@@ -25,8 +33,12 @@ class SaleBase(BaseModel):
         le=100,
         description="Commission percentage (0-100)",
     )
-    down_payment: Decimal | None = Field(None, ge=0, description="Down payment amount")
-    payment_method: PaymentMethod | None = Field(None, description="Payment method")
+    down_payment: Decimal | None = Field(None, ge=0, description="Down payment amount (legacy, use payment_methods)")
+    payment_method: PaymentMethod | None = Field(None, description="Legacy single payment method (deprecated, use payment_methods)")
+    payment_methods: list[PaymentMethodItem] | None = Field(
+        None,
+        description="List of payment methods. Each item has method, value, and optional description. Example: [{'method': 'CASH', 'value': 100000.00, 'description': 'Entrada'}, {'method': 'FINANCING', 'value': 400000.00}]",
+    )
     
     rent_duration_months: int | None = Field(None, ge=1, description="Rent duration in months")
     rent_start_date: datetime | None = Field(None, description="Rent start date")
@@ -59,6 +71,7 @@ class SaleUpdate(BaseModel):
     commission_value: Decimal | None = None
     down_payment: Decimal | None = None
     payment_method: PaymentMethod | None = None
+    payment_methods: list[PaymentMethodItem] | None = None
     
     rent_duration_months: int | None = None
     rent_start_date: datetime | None = None
@@ -89,6 +102,27 @@ class SaleResponse(SaleBase):
     client_name: str | None = None
     property_title: str | None = None
     broker_name: str | None = None
+
+    @field_validator("payment_methods", mode="before")
+    @classmethod
+    def convert_payment_methods_from_dict(cls, v):
+        """Convert payment_methods from dict format (from DB) to PaymentMethodItem list."""
+        if v is None:
+            return None
+        if isinstance(v, list):
+            # Already a list, check if it's dicts or PaymentMethodItem
+            if v and isinstance(v[0], dict):
+                # Convert dicts to PaymentMethodItem
+                from app.sales.models import PaymentMethod
+                return [
+                    PaymentMethodItem(
+                        method=PaymentMethod(item["method"]),
+                        value=Decimal(str(item["value"])),
+                        description=item.get("description"),
+                    )
+                    for item in v
+                ]
+        return v
 
     class Config:
         from_attributes = True
