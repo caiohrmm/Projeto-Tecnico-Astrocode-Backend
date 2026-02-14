@@ -562,17 +562,32 @@ class AttendanceRepository:
             return
 
         # Prepare update data
+        # NOTE: Only update current_status manually - other fields are AI-controlled
+        # AI-controlled fields (current_interest_type, current_property_type, current_city_interest,
+        # current_budget_min, current_budget_max) should be updated automatically by AI through
+        # _update_client_from_ai_summary, not manually through this method
         update_data = {}
         if client_status_update.current_status:
             update_data["current_status"] = client_status_update.current_status
+        
+        # BLOCK manual updates to AI-controlled fields
+        # These fields are updated automatically by AI through state derivation
+        # If provided in client_status_update, they will be ignored
         if client_status_update.current_interest_type:
-            update_data["current_interest_type"] = client_status_update.current_interest_type
+            logger.warning(
+                f"Ignoring manual update to current_interest_type for client {attendance.client_id}. "
+                "This field is controlled exclusively by AI."
+            )
         if client_status_update.current_property_type:
-            update_data["current_property_type"] = client_status_update.current_property_type
+            logger.warning(
+                f"Ignoring manual update to current_property_type for client {attendance.client_id}. "
+                "This field is controlled exclusively by AI."
+            )
 
         if update_data:
             client_update = ClientUpdate(**update_data)
-            client_repo.update(client, client_update)
+            # Do NOT allow AI updates here - this is for manual status updates only
+            client_repo.update(client, client_update, allow_ai_updates=False)
 
     def _process_completed_attendance(self, attendance: Attendance) -> None:
         """
@@ -1121,8 +1136,13 @@ class AttendanceRepository:
 
         if update_data:
             client_update = ClientUpdate(**update_data)
-            # Allow AI-driven lead_score updates from state derivation
-            updated_client = client_repo.update(client, client_update, allow_ai_lead_score_update=True)
+            # Allow AI-driven updates from state derivation (all AI-controlled fields)
+            updated_client = client_repo.update(
+                client, 
+                client_update, 
+                allow_ai_lead_score_update=True,
+                allow_ai_updates=True,  # Allow updates to all AI-controlled fields
+            )
             
             # Add timeline event for AI-driven client update
             if old_values:

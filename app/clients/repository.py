@@ -145,6 +145,7 @@ class ClientRepository:
         client: Client,
         client_data: ClientUpdate,
         allow_ai_lead_score_update: bool = False,
+        allow_ai_updates: bool = False,
     ) -> Client:
         """
         Update client information.
@@ -153,26 +154,44 @@ class ClientRepository:
             client: Client instance to update
             client_data: Update data (only provided fields will be updated)
             allow_ai_lead_score_update: If True, allow lead_score updates (for AI-driven updates from state derivation)
+            allow_ai_updates: If True, allow updates to AI-controlled fields (for AI-driven updates from state derivation)
 
         Returns:
             Updated client instance
         """
         update_data = client_data.model_dump(exclude_unset=True)
         
-        # Remove manual lead_score if provided (AI controls this field completely)
-        # Lead score is only updated by AI through state derivation or classification
-        # BUT: Allow updates when explicitly requested (from state derivation service)
-        if "current_lead_score" in update_data:
-            if not allow_ai_lead_score_update:
-                update_data.pop("current_lead_score")
+        # Fields controlled exclusively by AI - block manual updates unless allow_ai_updates=True
+        ai_controlled_fields = [
+            "current_lead_score",
+            "current_interest_type",
+            "current_property_type",
+            "current_city_interest",
+            "current_budget_min",
+            "current_budget_max",
+            "current_urgency_level",
+        ]
+        
+        # Remove AI-controlled fields if provided manually (unless explicitly allowed)
+        for field in ai_controlled_fields:
+            if field in update_data:
+                if field == "current_lead_score":
+                    # Special handling for lead_score (backward compatibility)
+                    if not allow_ai_lead_score_update:
+                        update_data.pop("current_lead_score")
+                        logger.info(f"Blocked manual update to current_lead_score for client {client.id} (AI-controlled field)")
+                elif not allow_ai_updates:
+                    # Block manual updates to other AI-controlled fields
+                    update_data.pop(field)
+                    logger.info(f"Blocked manual update to {field} for client {client.id} (AI-controlled field)")
         
         for field, value in update_data.items():
             setattr(client, field, value)
         
-        # Do NOT recalculate lead score manually
-        # Lead score is controlled exclusively by AI through:
-        # 1. AI classification (initial score)
+        # AI-controlled fields are updated exclusively by:
+        # 1. AI classification (initial values)
         # 2. State derivation from AISummary signals (ongoing updates)
+        # Manual updates are blocked to maintain data integrity and AI consistency
         
         self.db.commit()
         self.db.refresh(client)
