@@ -28,6 +28,17 @@ class ClientRepository:
     def create(self, client_data: ClientCreate) -> Client:
         """
         Create a new client.
+        
+        NOTE: The system is ALWAYS ATTENTIVE to changes. When a client is created,
+        it starts with default values. As soon as the first attendance is created:
+        - AI analyzes the conversation
+        - Detects interest, budget, urgency, property type
+        - Automatically updates the client profile through State Derivation Service
+        
+        The client profile is continuously updated by AI through attendances:
+        - New attendance → AI detects changes → Updates profile
+        - Attendance update → AI re-analyzes → Updates profile
+        - All changes are detected automatically, no manual intervention needed
 
         Args:
             client_data: Client creation data (only name, phone, email, lead_source required)
@@ -50,18 +61,19 @@ class ClientRepository:
         if "current_status" not in client_dict or client_dict["current_status"] is None:
             client_dict["current_status"] = ClientStatus.NEW_LEAD
         
-        # Lead score is controlled exclusively by AI
-        # If provided, it should come from AI classification (initial score)
-        # Otherwise, it will be set later by AI through state derivation
-        # Do NOT remove it if provided - it's from AI classification
+        # AI-controlled fields (lead_score, interest_type, property_type, etc.) are set to defaults
+        # and will be automatically updated by AI when the first attendance is created.
+        # The system is always attentive - any new attendance triggers AI analysis
+        # which updates the client profile through State Derivation Service.
         
         db_client = Client(**client_dict)
         self.db.add(db_client)
         self.db.flush()  # Flush to get the client ID
         
-        # Lead score is controlled by AI:
-        # 1. Initial score from AI classification (if use_ai_classification=True)
-        # 2. Ongoing updates from AISummary signals via state derivation
+        # AI-controlled fields are updated automatically:
+        # - When first attendance is created → AI analyzes → Updates profile
+        # - When attendance is updated → AI re-analyzes → Updates profile
+        # - All changes are detected and applied incrementally
         
         self.db.commit()
         self.db.refresh(db_client)
@@ -189,9 +201,13 @@ class ClientRepository:
             setattr(client, field, value)
         
         # AI-controlled fields are updated exclusively by:
-        # 1. AI classification (initial values)
-        # 2. State derivation from AISummary signals (ongoing updates)
-        # Manual updates are blocked to maintain data integrity and AI consistency
+        # 1. State derivation from AISummary signals (automatic updates from attendances)
+        # 2. Manual updates are blocked to maintain data integrity and AI consistency
+        # 
+        # The system is ALWAYS ATTENTIVE:
+        # - New attendance → AI analyzes → Updates client profile automatically
+        # - Attendance update → AI re-analyzes → Updates client profile automatically
+        # - All changes in interest, budget, urgency, lead_score are detected and applied
         
         self.db.commit()
         self.db.refresh(client)

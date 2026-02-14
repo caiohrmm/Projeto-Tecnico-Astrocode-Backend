@@ -548,6 +548,16 @@ class AttendanceRepository:
     ) -> None:
         """
         Update client status fields from attendance.
+        
+        NOTE: This method handles manual status updates only.
+        AI-controlled fields (interest, budget, urgency, lead_score) are updated
+        automatically through _update_client_from_ai_summary, which is called
+        whenever an AI summary is generated or updated.
+        
+        The system is ALWAYS attentive to changes:
+        - New attendance → AI analyzes → Updates client profile automatically
+        - Attendance update → AI re-analyzes → Updates client profile automatically
+        - All changes in interest, budget, urgency are detected and applied
 
         Args:
             attendance: Attendance instance
@@ -1030,11 +1040,22 @@ class AttendanceRepository:
         """
         Update client with information derived from structured signals.
         
+        ⚠️ IMPORTANT: This method is called AUTOMATICALLY whenever:
+        - A new attendance is created and AI summary is generated
+        - An attendance is updated and AI summary is regenerated
+        - An attendance is completed and final AI analysis is performed
+        
+        The system is ALWAYS ATTENTIVE to detect changes:
+        - ✅ New conversation → AI analyzes → Detects interest changes → Updates client profile
+        - ✅ Conversation update → AI re-analyzes → Detects new information → Updates client profile
+        - ✅ Any mention of budget, property type, city, urgency → Automatically detected and applied
+        
         This method uses ClientStateDerivationService to:
-        - Derive consolidated state from all signals (not just this summary)
-        - Apply suggestions incrementally
-        - Respect human-defined values
-        - Use cluster logic to avoid mixing contexts
+        - Derive consolidated state from ALL signals (not just this summary)
+        - Apply suggestions incrementally (gradual updates, not sudden changes)
+        - Respect human-defined values (doesn't overwrite manual inputs)
+        - Use cluster logic to avoid mixing contexts (prevents conflicting signals)
+        - Detect and apply changes in: interest_type, property_type, city, budget, urgency, lead_score
         
         Args:
             client_id: Client UUID

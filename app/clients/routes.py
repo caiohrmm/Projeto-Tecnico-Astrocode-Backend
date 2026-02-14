@@ -7,7 +7,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.ai.lead_classifier import lead_classifier, LeadClassification
+# Lead Classifier removed - system now detects changes through attendances and AI analysis
 from app.auth.dependencies import get_current_active_user
 from app.clients.models import Client, LeadSource
 from app.clients.repository import ClientRepository
@@ -69,66 +69,32 @@ def create_client(
                 detail="Client with this email already exists",
             )
 
-    # AI Classification (if enabled and not already provided)
-    classification: LeadClassification | None = None
-    if client_data.use_ai_classification:
-        classification = lead_classifier.classify_lead(
-            name=client_data.name,
-            phone=client_data.phone,
-            email=client_data.email,
-            lead_source=client_data.lead_source.value,
-            initial_message=client_data.initial_message,
-            notes=client_data.summary_notes,
-        )
-        
-        # Apply AI classification to client data if not already set
-        if client_data.current_lead_score is None:
-            client_data.current_lead_score = classification.lead_score
-        
-        if client_data.current_urgency_level is None:
-            client_data.current_urgency_level = classification.urgency_level
-        
-        if client_data.current_interest_type is None and classification.interest_type:
-            client_data.current_interest_type = classification.interest_type
-        
-        if client_data.current_property_type is None and classification.property_type:
-            client_data.current_property_type = classification.property_type
-        
-        # Always apply suggested_status if AI classification is enabled
-        # This ensures AI can promote leads to better statuses based on initial message
-        if classification.suggested_status:
-            client_data.current_status = classification.suggested_status
-        
-        # Apply extracted budget and city (always update if AI extracted them)
-        if classification.budget_min is not None:
-            client_data.current_budget_min = Decimal(str(classification.budget_min))
-        
-        if classification.budget_max is not None:
-            client_data.current_budget_max = Decimal(str(classification.budget_max))
-        
-        if classification.city_interest:
-            client_data.current_city_interest = classification.city_interest
+    # NOTE: Lead Classifier removed - the system now detects and updates client profile
+    # automatically through attendances. When a new attendance is created, the AI analyzes
+    # the conversation and updates the client's profile (interest, budget, urgency, lead_score)
+    # through the State Derivation Service.
+    #
+    # The system is always attentive to changes:
+    # - New attendance → AI analyzes → Updates client profile
+    # - Attendance update → AI re-analyzes → Updates client profile
+    # - All changes are detected automatically through AI summaries and state derivation
+    
+    # Set default values for new clients (will be updated by AI when first attendance is created)
+    from app.clients.models import ClientStatus, UrgencyLevel
+    if client_data.current_status is None:
+        client_data.current_status = ClientStatus.NEW_LEAD
+    if client_data.current_urgency_level is None:
+        client_data.current_urgency_level = UrgencyLevel.MEDIUM
+    if client_data.current_lead_score is None:
+        # Default initial score - will be updated by AI when first attendance is analyzed
+        client_data.current_lead_score = 30
 
     # Create client
     client = repository.create(client_data)
     
-    # Build response with classification
+    # Build response (no initial classification - will happen when first attendance is created)
     response_data = ClientResponse.model_validate(client).model_dump()
-    
-    if classification:
-        response_data["ai_classification"] = LeadClassificationResult(
-            lead_score=classification.lead_score,
-            urgency_level=classification.urgency_level,
-            interest_type=classification.interest_type,
-            property_type=classification.property_type,
-            suggested_status=classification.suggested_status,
-            classification_reason=classification.classification_reason,
-            key_indicators=classification.key_indicators,
-            recommended_actions=classification.recommended_actions,
-            confidence=classification.confidence,
-        )
-    else:
-        response_data["ai_classification"] = None
+    response_data["ai_classification"] = None
     
     return ClientWithClassification(**response_data)
 
@@ -288,30 +254,32 @@ def classify_lead(
     current_user: User = Depends(get_current_active_user),
 ) -> LeadClassificationResult:
     """
-    Classify or reclassify a lead using AI.
-
-    This endpoint analyzes the client's information and interaction history
-    to provide an updated classification with:
-    - Lead score
-    - Urgency level
-    - Interest/property type detection
-    - Recommendations
+    Get current client classification based on AI analysis of all attendances.
+    
+    NOTE: This endpoint returns the current state derived from AI analysis.
+    The system automatically detects and updates client profile whenever:
+    - A new attendance is created
+    - An attendance is updated
+    - An attendance is completed
+    
+    The client's profile (interest, budget, urgency, lead_score) is continuously
+    updated by the AI through the State Derivation Service, which analyzes all
+    attendance summaries and consolidates signals.
+    
+    This endpoint simply returns the current derived state, not a new classification.
 
     Args:
         client_id: Client UUID
-        request: Optional additional context for classification
+        request: Optional additional context (not used, kept for compatibility)
         db: Database session
         current_user: Current authenticated user
 
     Returns:
-        AI classification result
+        Current AI-derived classification result
 
     Raises:
         HTTPException: If client not found
     """
-    from app.attendances.repository import AttendanceRepository
-    from datetime import datetime
-    
     repository = ClientRepository(db)
     client = repository.get_by_id(client_id)
     
@@ -321,48 +289,38 @@ def classify_lead(
             detail="Client not found",
         )
     
-    # Get attendance history
-    attendance_repo = AttendanceRepository(db)
-    attendances = attendance_repo.get_by_client(client_id)
+    # Return current client state (already derived by AI from attendances)
+    # The system is always attentive - any change in attendances automatically
+    # triggers AI analysis and client profile update
+    from app.clients.state_derivation_service import ClientStateDerivationService
     
-    # Get last attendance summary
-    last_summary = None
-    if attendances:
-        last_attendance = attendances[0]  # Most recent
-        if last_attendance.ai_summary:
-            last_summary = last_attendance.ai_summary.summary
-    
-    # Calculate days since first contact
-    days_since_first = 0
-    if client.first_contact_at:
-        days_since_first = (datetime.utcnow() - client.first_contact_at).days
-    
-    # Classify using AI
-    classification = lead_classifier.reclassify_lead(
-        name=client.name,
-        phone=client.phone,
-        email=client.email,
-        lead_source=client.lead_source.value,
-        current_status=client.current_status.value if client.current_status else None,
-        attendances_count=len(attendances),
-        visits_count=0,  # TODO: Get from visits repo
-        days_since_first_contact=days_since_first,
-        last_attendance_summary=last_summary,
-        budget_min=float(client.current_budget_min) if client.current_budget_min else None,
-        budget_max=float(client.current_budget_max) if client.current_budget_max else None,
-        city_interest=client.current_city_interest,
+    # Get current derived state
+    derivation_result = ClientStateDerivationService.derive_client_state(
+        client_id=client_id,
+        db=db,
+        respect_human_values=True,
+        only_active_attendances=False,
+        max_cycles=None,
+        use_cluster_logic=True,
     )
     
+    # Build response from current client state
     return LeadClassificationResult(
-        lead_score=classification.lead_score,
-        urgency_level=classification.urgency_level,
-        interest_type=classification.interest_type,
-        property_type=classification.property_type,
-        suggested_status=classification.suggested_status,
-        classification_reason=classification.classification_reason,
-        key_indicators=classification.key_indicators,
-        recommended_actions=classification.recommended_actions,
-        confidence=classification.confidence,
+        lead_score=client.current_lead_score or 30,
+        urgency_level=client.current_urgency_level or "MEDIUM",
+        interest_type=client.current_interest_type.value if client.current_interest_type else None,
+        property_type=client.current_property_type.value if client.current_property_type else None,
+        suggested_status=client.current_status.value if client.current_status else "NEW_LEAD",
+        classification_reason="Estado atual derivado automaticamente pela IA através das análises de atendimentos",
+        key_indicators=[
+            f"Atendimentos analisados: {derivation_result.get('signals_count', 0)}",
+            f"Última atualização: {client.last_state_derivation_at.strftime('%d/%m/%Y %H:%M') if client.last_state_derivation_at else 'Nunca'}",
+        ],
+        recommended_actions=[
+            "O sistema detecta automaticamente mudanças através dos atendimentos",
+            "Cada nova conversa é analisada pela IA e atualiza o perfil do cliente",
+        ],
+        confidence=0.9,  # High confidence as it's derived from actual interactions
     )
 
 
