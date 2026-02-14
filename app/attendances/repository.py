@@ -185,7 +185,29 @@ class AttendanceRepository:
         
         # Get existing active attendance for this client (with lock to prevent race condition)
         # This query is now safe because we have the client row locked
+        # ⚠️ PROTECTION 1: Ensure only one ACTIVE attendance per client
+        # get_active_attendance_by_client already handles multiple ACTIVE (closes extras)
         existing_active_attendance = self.get_active_attendance_by_client(attendance_data.client_id)
+        
+        # Double-check: Verify no other ACTIVE attendance exists (extra safety)
+        if existing_active_attendance:
+            # Re-query with lock to ensure we have the latest state
+            active_check = self.db.execute(
+                select(Attendance)
+                .where(Attendance.client_id == attendance_data.client_id)
+                .where(Attendance.status == AttendanceStatus.ACTIVE)
+                .where(Attendance.id != existing_active_attendance.id)  # Exclude the one we found
+                .with_for_update(nowait=False)
+            ).scalars().first()
+            
+            if active_check:
+                # Found another ACTIVE - close it immediately (shouldn't happen, but safety check)
+                logger.error(
+                    f"CRITICAL: Found multiple ACTIVE attendances for client {attendance_data.client_id}. "
+                    f"Closing duplicate: {active_check.id}"
+                )
+                active_check.status = AttendanceStatus.ABANDONED
+                self.db.flush()
         
         # Determine if should create new or update existing
         should_create_new = AttendanceObjectiveService.should_create_new_attendance(
@@ -231,6 +253,13 @@ class AttendanceRepository:
     ) -> Attendance:
         """
         Create a new attendance with detected objective.
+        
+        ⚠️ CRITICAL: When a new ACTIVE cycle starts:
+        - Previous ACTIVE cycle is closed (ABANDONED, COMPLETED, or LOST)
+        - New ACTIVE cycle is created
+        - Client profile is updated based ONLY on this new ACTIVE cycle
+        - Previous cycle data is NOT considered (only_active_attendances=True)
+        - This ensures the profile always reflects the client's current objective and context
         
         Args:
             attendance_data: Attendance creation data
@@ -317,6 +346,8 @@ class AttendanceRepository:
 
         # Generate AI summary automatically (after commit to avoid foreign key issues)
         # Property_id is now set if detected, so AI summary will have correct context
+        # ⚠️ IMPORTANT: This will update client profile based ONLY on this new ACTIVE cycle
+        # Previous cycles are NOT considered (only_active_attendances=True in state derivation)
         self._generate_ai_summary(db_attendance)
 
         # Update client status if provided
@@ -688,8 +719,18 @@ class AttendanceRepository:
                 if next_steps:
                     attendance.ai_next_steps = "\n".join(f"• {step}" for step in next_steps)
 
-                # Update client with AI-detected information
-                self._update_client_from_ai_summary(attendance.client_id, ai_summary)
+                # ⚠️ PROTECTION 2: Do NOT update client profile from completed attendance
+                # The attendance is no longer ACTIVE, so client profile should NOT be updated
+                # Client profile maintains last state until new ACTIVE cycle starts
+                # Only ACTIVE cycles update the client profile
+                if attendance.status == AttendanceStatus.ACTIVE:
+                    # Only update if still ACTIVE (shouldn't happen in _process_completed_attendance, but safety check)
+                    self._update_client_from_ai_summary(attendance.client_id, ai_summary)
+                else:
+                    logger.info(
+                        f"Attendance {attendance.id} is {attendance.status.value}, not ACTIVE. "
+                        "Skipping client profile update. Client profile maintains last state."
+                    )
                 
                 # Add timeline event for completed attendance
                 self._add_timeline_event(
@@ -1040,6 +1081,11 @@ class AttendanceRepository:
         """
         Update client with information derived from structured signals.
         
+        ⚠️ CRITICAL PROTECTIONS:
+        1. ⚠️ PROTECTION 2: Only updates client if there's an ACTIVE attendance cycle
+        2. ⚠️ PROTECTION 3: Only considers signals from ACTIVE attendances (not closed cycles)
+        3. ⚠️ PROTECTION 4: If no ACTIVE cycle exists, client profile is maintained (not updated)
+        
         ⚠️ IMPORTANT: This method is called AUTOMATICALLY whenever:
         - A new attendance is created and AI summary is generated
         - An attendance is updated and AI summary is regenerated
@@ -1050,8 +1096,14 @@ class AttendanceRepository:
         - ✅ Conversation update → AI re-analyzes → Detects new information → Updates client profile
         - ✅ Any mention of budget, property type, city, urgency → Automatically detected and applied
         
+        ⚠️ CRITICAL: Client profile reflects ONLY the current ACTIVE cycle:
+        - Profile is derived ONLY from signals in the ACTIVE attendance cycle
+        - When a new ACTIVE cycle starts, profile is updated based ONLY on that cycle
+        - Previous cycles (COMPLETED, LOST, ABANDONED) are NOT considered
+        - This ensures the profile always reflects the client's current objective and context
+        
         This method uses ClientStateDerivationService to:
-        - Derive consolidated state from ALL signals (not just this summary)
+        - Derive consolidated state from ACTIVE cycle signals only (not historical cycles)
         - Apply suggestions incrementally (gradual updates, not sudden changes)
         - Respect human-defined values (doesn't overwrite manual inputs)
         - Use cluster logic to avoid mixing contexts (prevents conflicting signals)
@@ -1059,7 +1111,7 @@ class AttendanceRepository:
         
         Args:
             client_id: Client UUID
-            ai_summary: AI summary instance (used for context, but derivation considers all signals)
+            ai_summary: AI summary instance (used for context, but derivation considers only ACTIVE cycle signals)
         """
         from app.clients.schemas import ClientUpdate
         from app.clients.models import ClientStatus
@@ -1070,15 +1122,54 @@ class AttendanceRepository:
 
         if not client:
             return
+        
+        # ⚠️ PROTECTION 2: Verify the attendance associated with this AI summary is ACTIVE
+        # If the attendance is closed (COMPLETED, LOST, ABANDONED), do NOT update client profile
+        attendance = self.db.get(Attendance, ai_summary.attendance_id)
+        if not attendance:
+            logger.warning(
+                f"Attendance {ai_summary.attendance_id} not found for AI summary {ai_summary.id}. "
+                "Skipping client update."
+            )
+            return
+        
+        if attendance.status != AttendanceStatus.ACTIVE:
+            logger.info(
+                f"Attendance {attendance.id} is {attendance.status.value}, not ACTIVE. "
+                f"Skipping client profile update for client {client_id}. "
+                "Client profile will maintain last state until new ACTIVE cycle starts."
+            )
+            return  # ⚠️ PROTECTION 2: Do not update client from closed cycles
+        
+        # ⚠️ PROTECTION 4: Check if there's an ACTIVE attendance cycle
+        # If no ACTIVE cycle exists, maintain client profile (don't update)
+        active_attendance = self.get_active_attendance_by_client(client_id)
+        if not active_attendance:
+            logger.info(
+                f"No ACTIVE attendance cycle found for client {client_id}. "
+                "Client profile will maintain last state until new ACTIVE cycle starts."
+            )
+            return  # ⚠️ PROTECTION 4: Maintain last state if no ACTIVE cycle
+        
+        # Verify the AI summary belongs to the ACTIVE attendance
+        if active_attendance.id != attendance.id:
+            logger.warning(
+                f"AI summary {ai_summary.id} belongs to attendance {attendance.id} ({attendance.status.value}), "
+                f"but ACTIVE attendance is {active_attendance.id}. "
+                "Skipping client update - only ACTIVE cycle updates client profile."
+            )
+            return  # ⚠️ PROTECTION 2: Only update from ACTIVE cycle
 
-        # Derive consolidated state from all signals using ClientStateDerivationService
-        # This ensures we use cluster logic and respect human values
+        # Derive consolidated state from ACTIVE attendance cycle only
+        # ⚠️ IMPORTANT: Client profile reflects ONLY the current ACTIVE cycle, not historical cycles
+        # When a new ACTIVE cycle starts, the profile is updated based only on that cycle
+        # This ensures the profile always reflects the client's current objective and context
         derivation_result = ClientStateDerivationService.derive_client_state(
             client_id=client_id,
             db=self.db,
             respect_human_values=True,  # Don't overwrite human-defined values
-            only_active_attendances=False,  # Consider all attendances for consolidation
-            max_cycles=None,  # Consider all cycles
+            only_active_attendances=True,  # ⚠️ ONLY consider ACTIVE attendance cycle
+            max_cycles=None,  # Consider all signals from the ACTIVE cycle
             use_cluster_logic=True,  # Use cluster logic to avoid mixing contexts
         )
         
@@ -1367,6 +1458,11 @@ class AttendanceRepository:
     ) -> Attendance:
         """
         Update attendance information.
+        
+        ⚠️ PROTECTION 1: Ensures only one ACTIVE attendance per client.
+        ⚠️ PROTECTION 2: Client profile is only updated from ACTIVE cycles.
+        ⚠️ PROTECTION 3: All client updates must pass through attendance cycle.
+        ⚠️ PROTECTION 4: If no ACTIVE cycle exists, client profile is maintained.
 
         Args:
             attendance: Attendance instance to update
@@ -1458,8 +1554,11 @@ class AttendanceRepository:
         self.db.flush()
 
         # Process AI summary if status changed to COMPLETED
+        # ⚠️ PROTECTION 2: When attendance is closed, do NOT update client profile
+        # Client profile maintains last state until new ACTIVE cycle starts
         if status_changed_to_completed:
             # Trigger AI processing for completed attendance
+            # Note: _process_completed_attendance will NOT update client profile (attendance is not ACTIVE)
             self._process_completed_attendance(attendance)
         elif should_regen_ai:
             # Regenerate AI summary if relevant fields changed and attendance is completed

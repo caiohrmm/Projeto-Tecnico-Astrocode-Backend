@@ -35,9 +35,15 @@ class ClientRepository:
         - Detects interest, budget, urgency, property type
         - Automatically updates the client profile through State Derivation Service
         
+        ⚠️ CRITICAL: Client profile reflects ONLY the current ACTIVE cycle:
+        - Profile is derived ONLY from signals in the ACTIVE attendance cycle
+        - When a new ACTIVE cycle starts, profile is updated based ONLY on that cycle
+        - Previous cycles (COMPLETED, LOST, ABANDONED) are NOT considered
+        - This ensures the profile always reflects the client's current objective and context
+        
         The client profile is continuously updated by AI through attendances:
-        - New attendance → AI detects changes → Updates profile
-        - Attendance update → AI re-analyzes → Updates profile
+        - New attendance in ACTIVE cycle → AI detects changes → Updates profile
+        - Attendance update in ACTIVE cycle → AI re-analyzes → Updates profile
         - All changes are detected automatically, no manual intervention needed
 
         Args:

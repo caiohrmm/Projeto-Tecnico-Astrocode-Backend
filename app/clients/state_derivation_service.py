@@ -75,8 +75,16 @@ class ClientStateDerivationService:
     """
     Service for deriving consolidated client state from structured signals.
     
+    ⚠️ CRITICAL: By default, this service considers ONLY signals from ACTIVE attendances.
+    This ensures the client profile reflects ONLY the current active cycle, not historical cycles.
+    
+    When a new ACTIVE cycle starts:
+    - The profile is updated based ONLY on that cycle
+    - Previous cycle data (COMPLETED, LOST, ABANDONED) is NOT considered
+    - This ensures the profile always reflects the client's current objective and context
+    
     This service:
-    - Extracts structured signals from AI Summaries across multiple Attendances
+    - Extracts structured signals from AI Summaries in the ACTIVE attendance cycle
     - Consolidates signals using rules (most recent, highest confidence, etc.)
     - Provides traceability (which Attendance generated each value)
     - Respects human-defined values (doesn't overwrite explicit human input)
@@ -172,17 +180,21 @@ class ClientStateDerivationService:
     def get_all_signals_for_client(
         client_id: uuid.UUID,
         db: Session,
-        only_active_attendances: bool = False,
+        only_active_attendances: bool = True,  # ⚠️ DEFAULT CHANGED: Now defaults to True
         max_cycles: Optional[int] = None,
         exclude_if_won: bool = True,
     ) -> list[StructuredSignal]:
         """
         Get all structured signals from AI Summaries for a client.
         
+        ⚠️ IMPORTANT: By default, this method returns ONLY signals from ACTIVE attendances.
+        This ensures the client profile reflects ONLY the current active cycle.
+        
         Args:
             client_id: Client UUID
             db: Database session
-            only_active_attendances: If True, only include signals from ACTIVE attendances
+            only_active_attendances: If True (default), only include signals from ACTIVE attendances.
+                                    If False, includes signals from all attendances (historical).
             max_cycles: If set, only include signals from the most recent N attendances
             exclude_if_won: If True and client status is WON, exclude old signals
             
@@ -883,19 +895,28 @@ class ClientStateDerivationService:
         client_id: uuid.UUID,
         db: Session,
         respect_human_values: bool = True,
-        only_active_attendances: bool = False,
+        only_active_attendances: bool = True,  # ⚠️ DEFAULT CHANGED: Now defaults to True
         max_cycles: Optional[int] = None,
         use_cluster_logic: bool = True,
     ) -> dict[str, Any]:
         """
-        Derive consolidated client state from all structured signals.
+        Derive consolidated client state from structured signals.
+        
+        ⚠️ IMPORTANT: By default, this method considers ONLY signals from ACTIVE attendances.
+        This ensures the client profile reflects ONLY the current active cycle, not historical cycles.
+        
+        When a new ACTIVE cycle starts:
+        - The profile is updated based ONLY on that cycle
+        - Previous cycle data is not considered
+        - This ensures the profile always reflects the client's current objective and context
         
         Args:
             client_id: Client UUID
             db: Database session
             respect_human_values: If True, only suggests updates for fields that are None
                                   or were last updated by AI (not manually)
-            only_active_attendances: If True, only include signals from ACTIVE attendances
+            only_active_attendances: If True (default), only include signals from ACTIVE attendances.
+                                    If False, considers all attendances (historical consolidation).
             max_cycles: If set, only include signals from the most recent N attendances
             use_cluster_logic: If True, groups signals by Attendance to avoid mixing contexts
             

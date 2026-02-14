@@ -294,12 +294,13 @@ def classify_lead(
     # triggers AI analysis and client profile update
     from app.clients.state_derivation_service import ClientStateDerivationService
     
-    # Get current derived state
+    # Get current derived state from ACTIVE cycle only
+    # ⚠️ IMPORTANT: Client profile reflects ONLY the current ACTIVE cycle
     derivation_result = ClientStateDerivationService.derive_client_state(
         client_id=client_id,
         db=db,
         respect_human_values=True,
-        only_active_attendances=False,
+        only_active_attendances=True,  # ⚠️ ONLY consider ACTIVE attendance cycle
         max_cycles=None,
         use_cluster_logic=True,
     )
