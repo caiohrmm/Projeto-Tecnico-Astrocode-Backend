@@ -1103,4 +1103,308 @@ IMPORTANTE:
         
         return None
 
+    @staticmethod
+    def detect_property_mention(
+        raw_content: str,
+        db: Session | None = None,
+        current_property_id: uuid.UUID | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Detect if a specific property is mentioned in the raw_content.
+        
+        Analyzes the conversation to identify if the client is referring to a specific property
+        by code, address, or unique characteristics. If a property is already linked, it will
+        only change if a different property is explicitly mentioned.
+        
+        Args:
+            raw_content: Raw content of the attendance/conversation
+            db: Database session (required for property lookup)
+            current_property_id: Currently linked property_id (if any)
+            
+        Returns:
+            Dictionary with property information if detected, None otherwise:
+            {
+                "detected": True,
+                "property_id": uuid.UUID,
+                "property_code": str,
+                "confidence": 0.85,
+                "detection_method": "code" | "address" | "characteristics" | "confirmation",
+                "extracted_text": "Cliente mencionou código ABC123",
+                "is_confirmation": False,  # True if client confirmed/decided on this property
+            }
+            Or None if no specific property detected
+        """
+        if not db:
+            return None
+        
+        try:
+            gemini = AISummaryService._get_gemini_service()
+            from app.properties.repository import PropertyRepository
+            
+            property_repo = PropertyRepository(db)
+            
+            # Truncate content if too large
+            processed_content = AISummaryService._truncate_content_intelligently(raw_content, max_chars=50000)
+            
+            # If Gemini is not configured, use regex-based fallback
+            if not gemini.is_configured():
+                logger.warning("Gemini API not configured, using regex-based property detection")
+                return AISummaryService._detect_property_mention_regex(
+                    processed_content, property_repo, current_property_id
+                )
+            
+            # Get all published properties for context (limit to avoid too much data)
+            all_properties = property_repo.get_all(
+                skip=0,
+                limit=1000,  # Get up to 1000 properties for matching
+            )
+            
+            if not all_properties:
+                return None
+            
+            # Build property context for AI
+            properties_context = []
+            for prop in all_properties[:100]:  # Limit to 100 for prompt size
+                prop_info = f"Código: {prop.code}, Título: {prop.title}"
+                if prop.city:
+                    prop_info += f", Cidade: {prop.city}"
+                if prop.neighborhood:
+                    prop_info += f", Bairro: {prop.neighborhood}"
+                if prop.street:
+                    prop_info += f", Rua: {prop.street}"
+                if prop.number:
+                    prop_info += f", Número: {prop.number}"
+                if prop.bedrooms:
+                    prop_info += f", {prop.bedrooms} quartos"
+                if prop.property_type:
+                    prop_info += f", Tipo: {prop.property_type.value}"
+                properties_context.append(prop_info)
+            
+            properties_list = "\n".join(properties_context)
+            
+            # Build context about current property if any
+            current_property_context = ""
+            if current_property_id:
+                current_prop = property_repo.get_by_id(current_property_id)
+                if current_prop:
+                    current_property_context = f"""
+IMÓVEL ATUALMENTE VINCULADO:
+- Código: {current_prop.code}
+- Título: {current_prop.title}
+- Cidade: {current_prop.city or 'Não informada'}
+- Bairro: {current_prop.neighborhood or 'Não informado'}
+- Endereço: {current_prop.street or ''} {current_prop.number or ''}
+
+IMPORTANTE: Se o cliente confirmar ou decidir por este imóvel (ex: "quero esse", "vou com esse", "esse mesmo"), 
+retorne o property_id atual com is_confirmation=true. Só mude o property_id se um IMÓVEL DIFERENTE for mencionado.
+"""
+            
+            prompt = f"""Você é um assistente especializado em identificar imóveis específicos mencionados em conversas imobiliárias.
+
+Analise o seguinte conteúdo de conversa e identifique se o cliente está se referindo a um IMÓVEL ESPECÍFICO do catálogo.
+
+IMÓVEIS DISPONÍVEIS:
+{properties_list}
+
+{current_property_context}
+
+CONTEÚDO DA CONVERSA:
+{processed_content}
+
+INSTRUÇÕES:
+1. Identifique se há menção a um IMÓVEL ESPECÍFICO (não apenas preferências genéricas)
+2. Sinais de imóvel específico:
+   - Código do imóvel mencionado (ex: "código ABC123", "imóvel 123", "ref 456")
+   - Endereço específico (rua, número, bairro)
+   - Características únicas que identifiquem um imóvel específico
+   - Confirmação/decisaão sobre um imóvel (ex: "quero esse", "vou com esse", "esse mesmo", "decidi por esse")
+3. Se houver imóvel atualmente vinculado e o cliente confirmar/decidir por ele, retorne esse property_id com is_confirmation=true
+4. Só mude o property_id se um IMÓVEL DIFERENTE for mencionado
+5. Se não houver menção clara a imóvel específico, retorne null
+
+Responda APENAS com um JSON válido no formato:
+{{
+    "detected": true,
+    "property_id": "uuid-do-imovel",
+    "property_code": "ABC123",
+    "confidence": 0.85,
+    "detection_method": "code" | "address" | "characteristics" | "confirmation",
+    "extracted_text": "Cliente mencionou código ABC123",
+    "is_confirmation": false
+}}
+
+OU, se não detectar imóvel específico:
+{{
+    "detected": false
+}}
+
+IMPORTANTE:
+- Use o código do imóvel para identificar o property_id correto
+- Se o cliente disser "quero esse", "esse mesmo", "vou com esse", considere como confirmação do imóvel atual
+- Só retorne detected=true se tiver CERTEZA de qual imóvel específico está sendo mencionado"""
+
+            try:
+                result = gemini.chat(
+                    message=prompt,
+                    system_prompt="Você é um assistente especializado em identificar imóveis específicos mencionados em conversas imobiliárias. Responda APENAS com JSON válido.",
+                )
+                
+                if result.get("error"):
+                    logger.error(f"Error detecting property mention with Gemini: {result.get('error')}")
+                    return AISummaryService._detect_property_mention_regex(
+                        processed_content, property_repo, current_property_id
+                    )
+                
+                answer = result.get("answer", "").strip()
+                if not answer:
+                    return None
+                
+                # Try to extract JSON from the answer
+                import json
+                import re
+                
+                # Remove markdown code blocks if present
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', answer, re.DOTALL)
+                if json_match:
+                    answer = json_match.group(1)
+                else:
+                    # Try to find JSON object in the answer
+                    json_match = re.search(r'\{.*\}', answer, re.DOTALL)
+                    if json_match:
+                        answer = json_match.group(0)
+                
+                parsed = json.loads(answer)
+                
+                if not parsed.get("detected", False):
+                    return None
+                
+                property_code = parsed.get("property_code")
+                if not property_code:
+                    return None
+                
+                # Find property by code
+                property_found = property_repo.get_by_code(property_code.upper().strip())
+                if not property_found:
+                    logger.warning(f"Property code {property_code} mentioned but not found in database")
+                    return None
+                
+                # Check if this is a confirmation of current property
+                is_confirmation = parsed.get("is_confirmation", False)
+                if is_confirmation and current_property_id:
+                    if str(property_found.id) == str(current_property_id):
+                        # Client confirmed current property
+                        return {
+                            "detected": True,
+                            "property_id": property_found.id,
+                            "property_code": property_found.code,
+                            "confidence": min(max(parsed.get("confidence", 0.9), 0.0), 1.0),
+                            "detection_method": "confirmation",
+                            "extracted_text": parsed.get("extracted_text", ""),
+                            "is_confirmation": True,
+                        }
+                
+                # Check if different property was mentioned
+                if current_property_id and str(property_found.id) == str(current_property_id):
+                    # Same property, but not explicit confirmation - don't change
+                    return None
+                
+                # New or different property detected
+                return {
+                    "detected": True,
+                    "property_id": property_found.id,
+                    "property_code": property_found.code,
+                    "confidence": min(max(parsed.get("confidence", 0.7), 0.0), 1.0),
+                    "detection_method": parsed.get("detection_method", "code"),
+                    "extracted_text": parsed.get("extracted_text", ""),
+                    "is_confirmation": is_confirmation,
+                }
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing JSON from Gemini response: {e}, answer: {answer}")
+                return AISummaryService._detect_property_mention_regex(
+                    processed_content, property_repo, current_property_id
+                )
+            except Exception as e:
+                logger.error(f"Exception detecting property mention with Gemini: {e}", exc_info=True)
+                return AISummaryService._detect_property_mention_regex(
+                    processed_content, property_repo, current_property_id
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in detect_property_mention: {e}", exc_info=True)
+            return None
+
+    @staticmethod
+    def _detect_property_mention_regex(
+        raw_content: str,
+        property_repo,
+        current_property_id: uuid.UUID | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Fallback regex-based property mention detection.
+        
+        This is a simpler method that uses regex patterns to detect property codes.
+        Used when Gemini API is not configured.
+        
+        Args:
+            raw_content: Raw content to analyze
+            property_repo: PropertyRepository instance
+            current_property_id: Currently linked property_id (if any)
+            
+        Returns:
+            Property info dict or None
+        """
+        import re
+        
+        content = raw_content
+        
+        # Look for property codes (patterns like "código ABC123", "imóvel 123", "ref 456", etc.)
+        code_patterns = [
+            r"(?:código|code|ref|referência|imóvel)\s*[:\-]?\s*([A-Z0-9]{3,20})",
+            r"imóvel\s+([A-Z0-9]{3,20})",
+            r"propriedade\s+([A-Z0-9]{3,20})",
+        ]
+        
+        for pattern in code_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                code = match.group(1).upper().strip()
+                try:
+                    property_found = property_repo.get_by_code(code)
+                    if property_found:
+                        return {
+                            "detected": True,
+                            "property_id": property_found.id,
+                            "property_code": property_found.code,
+                            "confidence": 0.6,
+                            "detection_method": "code",
+                            "extracted_text": f"Cliente mencionou código {code}",
+                            "is_confirmation": False,
+                        }
+                except Exception:
+                    continue
+        
+        # Look for confirmation phrases
+        confirmation_patterns = [
+            r"(?:quero|vou com|decidi|escolhi|esse mesmo|esse|este mesmo|este)\s+(?:esse|este|esse imóvel|este imóvel|esse apartamento|este apartamento|essa casa|esta casa)",
+            r"(?:confirmo|confirmado|decidido|escolhido)\s+(?:esse|este|esse imóvel|este imóvel)",
+        ]
+        
+        for pattern in confirmation_patterns:
+            if re.search(pattern, content, re.IGNORECASE):
+                if current_property_id:
+                    current_prop = property_repo.get_by_id(current_property_id)
+                    if current_prop:
+                        return {
+                            "detected": True,
+                            "property_id": current_prop.id,
+                            "property_code": current_prop.code,
+                            "confidence": 0.7,
+                            "detection_method": "confirmation",
+                            "extracted_text": "Cliente confirmou/decidiu pelo imóvel",
+                            "is_confirmation": True,
+                        }
+        
+        return None
+
 

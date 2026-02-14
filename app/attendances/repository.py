@@ -273,7 +273,50 @@ class AttendanceRepository:
         # Re-query attendance after commit (object is detached)
         db_attendance = self.db.get(Attendance, attendance_id)
 
+        # Try to detect property mention from raw_content
+        # This happens BEFORE AI summary generation so property_id is set correctly
+        try:
+            from app.ai.service import AISummaryService
+            
+            property_info = AISummaryService.detect_property_mention(
+                raw_content=db_attendance.raw_content,
+                db=self.db,
+                current_property_id=db_attendance.property_id,
+            )
+            
+            if property_info and property_info.get("detected"):
+                detected_property_id = property_info.get("property_id")
+                if detected_property_id:
+                    logger.info(
+                        f"Detected property {detected_property_id} for new attendance {attendance_id}. "
+                        f"Setting property_id automatically."
+                    )
+                    db_attendance.property_id = detected_property_id
+                    self.db.flush()
+                    
+                    # Add timeline event for property detection
+                    self._add_timeline_event(
+                        client_id=client_id,
+                        event_type=TimelineEventType.PROPERTY_SELECTED,
+                        title="Imóvel detectado automaticamente",
+                        description=f"IA detectou menção ao imóvel {property_info.get('property_code', '')} na conversa inicial",
+                        related_attendance_id=attendance_id,
+                        related_property_id=detected_property_id,
+                        event_data={
+                            "property_code": property_info.get("property_code"),
+                            "detection_method": property_info.get("detection_method"),
+                            "confidence": property_info.get("confidence"),
+                            "extracted_text": property_info.get("extracted_text"),
+                        },
+                        ai_generated=True,
+                        importance=4,
+                        auto_add=True,
+                    )
+        except Exception as e:
+            logger.warning(f"Error detecting property mention in new attendance: {e}", exc_info=True)
+
         # Generate AI summary automatically (after commit to avoid foreign key issues)
+        # Property_id is now set if detected, so AI summary will have correct context
         self._generate_ai_summary(db_attendance)
 
         # Update client status if provided
@@ -384,8 +427,78 @@ class AttendanceRepository:
         existing_attendance.raw_content = accumulated_content
         
         # Update other fields if provided (channel, property_id, etc.)
+        # IMPORTANT: Only update property_id if explicitly provided OR if detected by AI
+        # If property_id is already set and client confirms it, keep it
+        # Only change if a different property is detected
         if attendance_data.property_id:
             existing_attendance.property_id = attendance_data.property_id
+        else:
+            # Try to detect property mention from new content
+            try:
+                from app.ai.service import AISummaryService
+                
+                property_info = AISummaryService.detect_property_mention(
+                    raw_content=accumulated_content,
+                    db=self.db,
+                    current_property_id=existing_attendance.property_id,
+                )
+                
+                if property_info and property_info.get("detected"):
+                    detected_property_id = property_info.get("property_id")
+                    is_confirmation = property_info.get("is_confirmation", False)
+                    
+                    # If client confirmed current property, keep it (already set)
+                    if is_confirmation and existing_attendance.property_id:
+                        logger.info(
+                            f"Client confirmed property {existing_attendance.property_id} "
+                            f"for attendance {existing_attendance.id}"
+                        )
+                        # Add timeline event for confirmation
+                        self._add_timeline_event(
+                            client_id=existing_attendance.client_id,
+                            event_type=TimelineEventType.PROPERTY_CONFIRMED,
+                            title="Cliente confirmou imóvel",
+                            description=f"Cliente confirmou/decidiu pelo imóvel {property_info.get('property_code', '')}",
+                            related_attendance_id=existing_attendance.id,
+                            related_property_id=existing_attendance.property_id,
+                            event_data={
+                                "property_code": property_info.get("property_code"),
+                                "detection_method": property_info.get("detection_method"),
+                                "confidence": property_info.get("confidence"),
+                            },
+                            ai_generated=True,
+                            importance=5,
+                            auto_add=True,
+                        )
+                    elif detected_property_id:
+                        # Different property detected or new property
+                        if not existing_attendance.property_id or str(detected_property_id) != str(existing_attendance.property_id):
+                            logger.info(
+                                f"Detected property {detected_property_id} for attendance {existing_attendance.id}. "
+                                f"Previous: {existing_attendance.property_id}"
+                            )
+                            existing_attendance.property_id = detected_property_id
+                            
+                            # Add timeline event for property detection
+                            self._add_timeline_event(
+                                client_id=existing_attendance.client_id,
+                                event_type=TimelineEventType.PROPERTY_SELECTED,
+                                title="Imóvel detectado automaticamente",
+                                description=f"IA detectou menção ao imóvel {property_info.get('property_code', '')} na conversa",
+                                related_attendance_id=existing_attendance.id,
+                                related_property_id=detected_property_id,
+                                event_data={
+                                    "property_code": property_info.get("property_code"),
+                                    "detection_method": property_info.get("detection_method"),
+                                    "confidence": property_info.get("confidence"),
+                                    "extracted_text": property_info.get("extracted_text"),
+                                },
+                                ai_generated=True,
+                                importance=4,
+                                auto_add=True,
+                            )
+            except Exception as e:
+                logger.warning(f"Error detecting property mention: {e}", exc_info=True)
         
         # Update scheduled_visit_at if provided and not already set
         if attendance_data.scheduled_visit_at and not existing_attendance.scheduled_visit_at:
