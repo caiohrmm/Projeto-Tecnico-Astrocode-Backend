@@ -648,6 +648,73 @@ class AttendanceRepository:
             logger.error(f"Error creating timeline event: {e}", exc_info=True)
             return None
 
+    def _check_objective_completed(
+        self,
+        attendance: Attendance,
+        ai_summary: AISummary,
+    ) -> bool:
+        """
+        Check if the attendance objective was completed (sale finalized).
+        
+        Args:
+            attendance: Attendance instance
+            ai_summary: AI summary for the attendance
+            
+        Returns:
+            True if objective was completed, False otherwise
+        """
+        # Check client status
+        client_repo = ClientRepository(self.db)
+        client = client_repo.get_by_id(attendance.client_id)
+        if client and client.current_status:
+            from app.clients.models import ClientStatus
+            if client.current_status == ClientStatus.WON:
+                return True
+        
+        # Check if summary text indicates sale completion
+        summary_lower = ai_summary.summary_text.lower()
+        completion_keywords = [
+            "concretizado",
+            "concretizada",
+            "confirmou a compra",
+            "confirmou a venda",
+            "negócio foi",
+            "venda foi",
+            "compra foi",
+            "fechou o negócio",
+            "fechou negócio",
+            "compra confirmada",
+            "venda confirmada",
+            "negócio fechado",
+            "compra realizada",
+            "venda realizada",
+        ]
+        
+        if any(keyword in summary_lower for keyword in completion_keywords):
+            return True
+        
+        # Check if there are completed visits related to this attendance
+        visit_repo = VisitRepository(self.db)
+        visits_stmt = select(Visit).where(Visit.attendance_id == attendance.id)
+        visits = list(self.db.scalars(visits_stmt).all())
+        if visits:
+            completed_visits = [v for v in visits if v.status == VisitStatus.COMPLETED]
+            if completed_visits:
+                # If there's a completed visit and the summary mentions satisfaction/completion
+                satisfaction_keywords = [
+                    "adorou",
+                    "gostou muito",
+                    "satisfeito",
+                    "satisfeita",
+                    "aprovou",
+                    "aceitou",
+                    "fechou",
+                ]
+                if any(keyword in summary_lower for keyword in satisfaction_keywords):
+                    return True
+        
+        return False
+
     def _generate_ai_summary(self, attendance: Attendance) -> None:
         """
         Generate and save AI summary for attendance.
@@ -709,58 +776,75 @@ class AttendanceRepository:
             status_value = ai_summary.status.value if hasattr(ai_summary.status, 'value') else str(ai_summary.status)
             if status_value == "COMPLETED":
                 attendance.ai_summary = ai_summary.summary_text
-                # Generate next steps from AI analysis
-                next_steps = []
                 
-                # Add action based on detected intent
-                if ai_summary.detected_intent:
-                    intent_labels = {
-                        "PROPERTY_SEARCH": "Buscar propriedades compatíveis com o perfil",
-                        "SCHEDULE_VISIT": "Agendar visita para conhecer imóveis",
-                        "PRICE_NEGOTIATION": "Negociar valores e condições",
-                        "INFORMATION_REQUEST": "Enviar informações detalhadas",
-                        "DOCUMENTATION_REQUEST": "Preparar documentação solicitada",
-                        "COMPLAINT": "Resolver reclamação apresentada",
-                        "GENERAL_INQUIRY": "Acompanhar interesse do cliente",
-                    }
-                    intent_value = ai_summary.detected_intent.value if hasattr(ai_summary.detected_intent, 'value') else str(ai_summary.detected_intent)
-                    intent_label = intent_labels.get(intent_value, "Acompanhar cliente")
-                    next_steps.append(intent_label)
+                # Check if objective was completed (sale finalized)
+                objective_completed = self._check_objective_completed(
+                    attendance=attendance,
+                    ai_summary=ai_summary
+                )
                 
-                if ai_summary.interest_type_detected:
-                    interest_type_labels = {
-                        "BUY": "Comprar imóvel",
-                        "RENT": "Alugar imóvel",
-                        "SELL": "Vender imóvel",
-                        "INVEST": "Investir em imóvel",
-                    }
-                    interest_type_value = ai_summary.interest_type_detected.value if hasattr(ai_summary.interest_type_detected, 'value') else str(ai_summary.interest_type_detected)
-                    interest_label = interest_type_labels.get(interest_type_value, interest_type_value)
-                    next_steps.append(f"Cliente interessado em: {interest_label}")
-                
-                if ai_summary.urgency_level_detected:
-                    urgency_labels = {
-                        "IMMEDIATE": "URGENTE - Contatar imediatamente",
-                        "HIGH": "Alta prioridade - Contatar em até 24h",
-                        "MEDIUM": "Média prioridade - Contatar em até 3 dias",
-                        "LOW": "Baixa prioridade - Contatar em até 7 dias",
-                    }
-                    urgency_value = ai_summary.urgency_level_detected.value if hasattr(ai_summary.urgency_level_detected, 'value') else str(ai_summary.urgency_level_detected)
-                    urgency_label = urgency_labels.get(urgency_value, urgency_value)
-                    next_steps.append(urgency_label)
-                
-                if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
-                    budget_str = ""
-                    if ai_summary.budget_min_detected:
-                        budget_str += f"R$ {ai_summary.budget_min_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    if ai_summary.budget_max_detected:
-                        if budget_str:
-                            budget_str += " - "
-                        budget_str += f"R$ {ai_summary.budget_max_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    next_steps.append(f"Orçamento identificado: {budget_str}")
-                
-                if ai_summary.recommended_properties and len(ai_summary.recommended_properties) > 0:
-                    next_steps.append(f"Apresentar {len(ai_summary.recommended_properties)} imóvel(eis) recomendado(s)")
+                # Generate next steps based on whether objective was completed
+                if objective_completed:
+                    # Objective completed - generate post-sale next steps
+                    next_steps = [
+                        "Finalizar documentação da compra",
+                        "Acompanhar processo de escritura",
+                        "Agendar assinatura de contrato",
+                        "Enviar documentação necessária para o cliente"
+                    ]
+                else:
+                    # Objective not completed - generate regular next steps
+                    next_steps = []
+                    
+                    # Add action based on detected intent
+                    if ai_summary.detected_intent:
+                        intent_labels = {
+                            "PROPERTY_SEARCH": "Buscar propriedades compatíveis com o perfil",
+                            "SCHEDULE_VISIT": "Agendar visita para conhecer imóveis",
+                            "PRICE_NEGOTIATION": "Negociar valores e condições",
+                            "INFORMATION_REQUEST": "Enviar informações detalhadas",
+                            "DOCUMENTATION_REQUEST": "Preparar documentação solicitada",
+                            "COMPLAINT": "Resolver reclamação apresentada",
+                            "GENERAL_INQUIRY": "Acompanhar interesse do cliente",
+                        }
+                        intent_value = ai_summary.detected_intent.value if hasattr(ai_summary.detected_intent, 'value') else str(ai_summary.detected_intent)
+                        intent_label = intent_labels.get(intent_value, "Acompanhar cliente")
+                        next_steps.append(intent_label)
+                    
+                    if ai_summary.interest_type_detected:
+                        interest_type_labels = {
+                            "BUY": "Comprar imóvel",
+                            "RENT": "Alugar imóvel",
+                            "SELL": "Vender imóvel",
+                            "INVEST": "Investir em imóvel",
+                        }
+                        interest_type_value = ai_summary.interest_type_detected.value if hasattr(ai_summary.interest_type_detected, 'value') else str(ai_summary.interest_type_detected)
+                        interest_label = interest_type_labels.get(interest_type_value, interest_type_value)
+                        next_steps.append(f"Cliente interessado em: {interest_label}")
+                    
+                    if ai_summary.urgency_level_detected:
+                        urgency_labels = {
+                            "IMMEDIATE": "URGENTE - Contatar imediatamente",
+                            "HIGH": "Alta prioridade - Contatar em até 24h",
+                            "MEDIUM": "Média prioridade - Contatar em até 3 dias",
+                            "LOW": "Baixa prioridade - Contatar em até 7 dias",
+                        }
+                        urgency_value = ai_summary.urgency_level_detected.value if hasattr(ai_summary.urgency_level_detected, 'value') else str(ai_summary.urgency_level_detected)
+                        urgency_label = urgency_labels.get(urgency_value, urgency_value)
+                        next_steps.append(urgency_label)
+                    
+                    if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
+                        budget_str = ""
+                        if ai_summary.budget_min_detected:
+                            budget_str += f"R$ {ai_summary.budget_min_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        if ai_summary.budget_max_detected:
+                            if budget_str:
+                                budget_str += " - "
+                            budget_str += f"R$ {ai_summary.budget_max_detected:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        next_steps.append(f"Orçamento identificado: {budget_str}")
+                    
+                    if ai_summary.recommended_properties and len(ai_summary.recommended_properties) > 0:
+                        next_steps.append(f"Apresentar {len(ai_summary.recommended_properties)} imóvel(eis) recomendado(s)")
                 
                 if next_steps:
                     attendance.ai_next_steps = "\n".join(f"• {step}" for step in next_steps)
