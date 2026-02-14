@@ -785,4 +785,322 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
             logger.error(f"Error recommending properties: {e}", exc_info=True)
             return None
 
+    @staticmethod
+    def detect_visit_intent(
+        raw_content: str,
+        client_id: uuid.UUID | None = None,
+        property_id: uuid.UUID | None = None,
+        agent_id: uuid.UUID | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Detect visit intent from raw content using AI.
+        
+        Analyzes the conversation to identify if the client wants to schedule a visit,
+        extracts date, time, and validates the information.
+        
+        Args:
+            raw_content: Raw content of the attendance/conversation
+            client_id: Optional client ID for context
+            property_id: Optional property ID if visit is for a specific property
+            agent_id: Optional agent ID (will be used as broker_id for visit)
+            
+        Returns:
+            Dictionary with visit information if detected, None otherwise:
+            {
+                "detected": True,
+                "scheduled_at": "2024-02-15T14:30:00",  # ISO format datetime
+                "date": "15/02/2024",  # Human-readable date
+                "time": "14:30",  # Human-readable time
+                "confidence": 0.85,  # Confidence score (0-1)
+                "extracted_text": "Cliente quer visitar no dia 15/02 às 14:30",
+                "property_id": uuid.UUID | None,  # Property mentioned or provided
+                "notes": "Visita agendada durante atendimento"
+            }
+            Or None if no visit intent detected
+        """
+        try:
+            gemini = AISummaryService._get_gemini_service()
+            
+            # Truncate content if too large
+            processed_content = AISummaryService._truncate_content_intelligently(raw_content, max_chars=50000)
+            
+            # If Gemini is not configured, use regex-based fallback
+            if not gemini.is_configured():
+                logger.warning("Gemini API not configured, using regex-based visit detection")
+                return AISummaryService._detect_visit_intent_regex(processed_content, property_id)
+            
+            # Use Gemini to detect visit intent
+            from datetime import datetime, timedelta
+            
+            current_date = datetime.now()
+            current_date_str = current_date.strftime("%d/%m/%Y")
+            current_year = current_date.year
+            
+            # Build context
+            context = ""
+            if property_id:
+                context += f"\nPROPRIEDADE MENCIONADA: ID {property_id}\n"
+            if client_id:
+                context += f"\nCLIENTE: ID {client_id}\n"
+            
+            prompt = f"""Você é um assistente especializado em detectar intenções de agendamento de visitas imobiliárias.
+
+Analise o seguinte conteúdo de conversa e identifique se o cliente expressou desejo de agendar uma visita a um imóvel.
+
+DATA ATUAL: {current_date_str} ({current_year})
+ANO ATUAL: {current_year}
+{context}
+
+CONTEÚDO DA CONVERSA:
+{processed_content}
+
+INSTRUÇÕES:
+1. Identifique se há MENÇÃO EXPLÍCITA de agendamento de visita (ex: "quero visitar", "podemos marcar", "agendar visita", "quero ver o imóvel", "visitar na data X", etc.)
+2. Se detectar intenção de visita, extraia:
+   - DATA: no formato DD/MM/YYYY (se mencionada)
+   - HORA: no formato HH:MM (se mencionada)
+   - Se apenas dia da semana for mencionado (ex: "segunda-feira"), calcule a data considerando a data atual
+   - Se apenas data parcial for mencionada (ex: "dia 15"), assuma o mês atual ou próximo se já passou
+   - Se ano não for mencionado, assuma o ano atual ({current_year}) ou próximo se a data já passou
+3. VALIDAÇÕES:
+   - Data não pode ser no passado (se mencionada data passada, retorne null)
+   - Data deve ser válida (ex: não pode ser 31/02)
+   - Hora deve estar entre 08:00 e 20:00 (horário comercial)
+   - Se apenas horário for mencionado sem data, assuma "hoje" se ainda não passou, senão "amanhã"
+4. Se NÃO houver intenção clara de agendamento, retorne null
+5. Se a data mencionada for ambígua ou inválida, retorne null
+
+Responda APENAS com um JSON válido no formato:
+{{
+    "detected": true,
+    "scheduled_at": "2024-02-15T14:30:00",  // ISO format datetime (UTC)
+    "date": "15/02/2024",  // Human-readable date (DD/MM/YYYY)
+    "time": "14:30",  // Human-readable time (HH:MM)
+    "confidence": 0.85,  // Confidence score 0-1
+    "extracted_text": "Cliente quer visitar no dia 15/02 às 14:30",
+    "notes": "Visita agendada durante atendimento"
+}}
+
+OU, se não detectar intenção de visita:
+{{
+    "detected": false
+}}
+
+IMPORTANTE:
+- Se detectar intenção, o campo "scheduled_at" DEVE estar no formato ISO 8601 (YYYY-MM-DDTHH:MM:SS)
+- Use o fuso horário UTC
+- Se a data/hora mencionada for relativa (ex: "amanhã às 14h"), calcule a data absoluta baseada na data atual
+- Se apenas parte da informação estiver presente (ex: só data sem hora), use valores padrão razoáveis (ex: 14:00 para hora)"""
+
+            try:
+                result = gemini.chat(
+                    message=prompt,
+                    system_prompt="Você é um assistente especializado em detectar intenções de agendamento de visitas imobiliárias. Responda APENAS com JSON válido.",
+                )
+                
+                if result.get("error"):
+                    logger.error(f"Error detecting visit intent with Gemini: {result.get('error')}")
+                    return AISummaryService._detect_visit_intent_regex(processed_content, property_id)
+                
+                answer = result.get("answer", "").strip()
+                if not answer:
+                    return None
+                
+                # Try to extract JSON from the answer (might have markdown code blocks)
+                import json
+                import re
+                
+                # Remove markdown code blocks if present
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', answer, re.DOTALL)
+                if json_match:
+                    answer = json_match.group(1)
+                else:
+                    # Try to find JSON object in the answer
+                    json_match = re.search(r'\{.*\}', answer, re.DOTALL)
+                    if json_match:
+                        answer = json_match.group(0)
+                
+                parsed = json.loads(answer)
+                
+                if not parsed.get("detected", False):
+                    return None
+                
+                # Validate and convert scheduled_at to datetime
+                scheduled_at_str = parsed.get("scheduled_at")
+                if not scheduled_at_str:
+                    return None
+                
+                try:
+                    # Parse ISO format datetime
+                    scheduled_at = datetime.fromisoformat(scheduled_at_str.replace('Z', '+00:00'))
+                    
+                    # Validate: date cannot be in the past
+                    if scheduled_at < current_date:
+                        logger.warning(f"Detected visit date is in the past: {scheduled_at_str}, ignoring")
+                        return None
+                    
+                    # Validate: hour should be between 08:00 and 20:00
+                    hour = scheduled_at.hour
+                    if hour < 8 or hour >= 20:
+                        logger.warning(f"Detected visit hour is outside business hours: {hour}, adjusting to 14:00")
+                        scheduled_at = scheduled_at.replace(hour=14, minute=0)
+                    
+                    # Build response
+                    visit_info = {
+                        "detected": True,
+                        "scheduled_at": scheduled_at.isoformat(),
+                        "date": parsed.get("date", scheduled_at.strftime("%d/%m/%Y")),
+                        "time": parsed.get("time", scheduled_at.strftime("%H:%M")),
+                        "confidence": min(max(parsed.get("confidence", 0.7), 0.0), 1.0),  # Clamp between 0 and 1
+                        "extracted_text": parsed.get("extracted_text", ""),
+                        "property_id": str(property_id) if property_id else None,
+                        "notes": parsed.get("notes", "Visita agendada durante atendimento"),
+                    }
+                    
+                    logger.info(f"Visit intent detected: {visit_info}")
+                    return visit_info
+                    
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Error parsing scheduled_at: {scheduled_at_str}, error: {e}")
+                    return None
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing JSON from Gemini response: {e}, answer: {answer}")
+                return AISummaryService._detect_visit_intent_regex(processed_content, property_id)
+            except Exception as e:
+                logger.error(f"Exception detecting visit intent with Gemini: {e}", exc_info=True)
+                return AISummaryService._detect_visit_intent_regex(processed_content, property_id)
+                
+        except Exception as e:
+            logger.error(f"Error in detect_visit_intent: {e}", exc_info=True)
+            return None
+
+    @staticmethod
+    def _detect_visit_intent_regex(raw_content: str, property_id: uuid.UUID | None = None) -> dict[str, Any] | None:
+        """
+        Fallback regex-based visit intent detection.
+        
+        This is a simpler method that uses regex patterns to detect common visit scheduling phrases.
+        Used when Gemini API is not configured.
+        
+        Args:
+            raw_content: Raw content to analyze
+            property_id: Optional property ID
+            
+        Returns:
+            Visit info dict or None
+        """
+        import re
+        from datetime import datetime, timedelta
+        
+        content_lower = raw_content.lower()
+        
+        # Keywords that indicate visit intent
+        visit_keywords = [
+            r"quero\s+visitar",
+            r"podemos\s+marcar",
+            r"agendar\s+visita",
+            r"quero\s+ver",
+            r"visitar\s+(?:no|na|o)",
+            r"marcar\s+(?:visita|para\s+ver)",
+            r"agendar\s+(?:para|a)",
+            r"visita\s+(?:no|na|para)",
+        ]
+        
+        has_visit_intent = any(re.search(keyword, content_lower) for keyword in visit_keywords)
+        
+        if not has_visit_intent:
+            return None
+        
+        # Try to extract date and time
+        # Date patterns: DD/MM/YYYY, DD/MM, "dia X", "amanhã", "segunda-feira", etc.
+        date_patterns = [
+            r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))?",  # DD/MM/YYYY or DD/MM
+            r"dia\s+(\d{1,2})",  # "dia 15"
+            r"(\d{1,2})\s+de\s+(\w+)",  # "15 de fevereiro"
+        ]
+        
+        # Time patterns: HH:MM, "às X horas", "X horas", etc.
+        time_patterns = [
+            r"(\d{1,2}):(\d{2})",  # HH:MM
+            r"às\s+(\d{1,2})\s*h(?:oras|rs)?",  # "às 14 horas"
+            r"(\d{1,2})\s*h(?:oras|rs)?",  # "14 horas"
+        ]
+        
+        scheduled_at = None
+        current_date = datetime.now()
+        
+        # Try to extract date
+        for pattern in date_patterns:
+            match = re.search(pattern, content_lower)
+            if match:
+                try:
+                    if pattern == r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))?":
+                        day = int(match.group(1))
+                        month = int(match.group(2))
+                        year = int(match.group(3)) if match.group(3) else current_date.year
+                        if year < current_date.year or (year == current_date.year and (month < current_date.month or (month == current_date.month and day < current_date.day))):
+                            year = current_date.year + 1 if month < current_date.month or (month == current_date.month and day < current_date.day) else current_date.year
+                        scheduled_at = datetime(year, month, day, 14, 0)  # Default to 14:00
+                        break
+                    elif pattern == r"dia\s+(\d{1,2})":
+                        day = int(match.group(1))
+                        month = current_date.month
+                        year = current_date.year
+                        if day < current_date.day:
+                            month += 1
+                            if month > 12:
+                                month = 1
+                                year += 1
+                        scheduled_at = datetime(year, month, day, 14, 0)
+                        break
+                except (ValueError, IndexError):
+                    continue
+        
+        # If no date found, check for relative dates
+        if not scheduled_at:
+            if "amanhã" in content_lower or "amanha" in content_lower:
+                scheduled_at = current_date + timedelta(days=1)
+                scheduled_at = scheduled_at.replace(hour=14, minute=0)
+            elif "hoje" in content_lower:
+                scheduled_at = current_date.replace(hour=14, minute=0)
+                if scheduled_at < current_date:
+                    scheduled_at = scheduled_at + timedelta(days=1)
+            else:
+                # Default to tomorrow if visit intent detected but no date
+                scheduled_at = current_date + timedelta(days=1)
+                scheduled_at = scheduled_at.replace(hour=14, minute=0)
+        
+        # Try to extract time
+        for pattern in time_patterns:
+            match = re.search(pattern, content_lower)
+            if match:
+                try:
+                    if pattern == r"(\d{1,2}):(\d{2})":
+                        hour = int(match.group(1))
+                        minute = int(match.group(2))
+                    else:
+                        hour = int(match.group(1))
+                        minute = 0
+                    
+                    if 8 <= hour < 20:
+                        scheduled_at = scheduled_at.replace(hour=hour, minute=minute)
+                    break
+                except (ValueError, IndexError):
+                    continue
+        
+        if scheduled_at and scheduled_at >= current_date:
+            return {
+                "detected": True,
+                "scheduled_at": scheduled_at.isoformat(),
+                "date": scheduled_at.strftime("%d/%m/%Y"),
+                "time": scheduled_at.strftime("%H:%M"),
+                "confidence": 0.6,  # Lower confidence for regex-based detection
+                "extracted_text": f"Visita detectada para {scheduled_at.strftime('%d/%m/%Y às %H:%M')}",
+                "property_id": str(property_id) if property_id else None,
+                "notes": "Visita agendada durante atendimento (detecção automática)",
+            }
+        
+        return None
+
 

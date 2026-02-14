@@ -115,6 +115,19 @@ class CycleAction(str, enum.Enum):
     PREVIOUS_CYCLE_CLOSED = "PREVIOUS_CYCLE_CLOSED"
 
 
+class DetectedVisitInfo(BaseModel):
+    """Schema for detected visit information from AI analysis."""
+    
+    detected: bool = Field(..., description="Whether a visit intent was detected")
+    scheduled_at: str | None = Field(None, description="ISO format datetime for scheduled visit")
+    date: str | None = Field(None, description="Human-readable date (DD/MM/YYYY)")
+    time: str | None = Field(None, description="Human-readable time (HH:MM)")
+    confidence: float | None = Field(None, description="Confidence score (0-1)")
+    extracted_text: str | None = Field(None, description="Text extracted from conversation")
+    property_id: str | None = Field(None, description="Property ID if mentioned or provided")
+    notes: str | None = Field(None, description="Notes about the detected visit")
+
+
 class AttendanceResponse(BaseModel):
     """
     Schema for attendance response.
@@ -152,6 +165,10 @@ class AttendanceResponse(BaseModel):
     previous_cycle_id: uuid.UUID | None = Field(
         None,
         description="ID of the previous cycle that was closed (if any). Only present when NEW_CYCLE_CREATED.",
+    )
+    detected_visit: DetectedVisitInfo | None = Field(
+        None,
+        description="Visit intent detected by AI from raw_content. Only present when visit intent is detected.",
     )
 
     @model_validator(mode="before")

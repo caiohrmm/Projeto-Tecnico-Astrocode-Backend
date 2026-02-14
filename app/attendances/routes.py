@@ -89,7 +89,7 @@ def create_attendance(
     attendance = attendance_repo.create(attendance_data)
     
     # Determine the action taken
-    from app.attendances.schemas import CycleAction
+    from app.attendances.schemas import CycleAction, DetectedVisitInfo
     
     if existing_active and existing_active.id != attendance.id:
         # New cycle created, previous one was closed
@@ -104,12 +104,33 @@ def create_attendance(
         cycle_action = CycleAction.NEW_CYCLE_CREATED
         previous_cycle_id = None
     
-    # Create response with cycle action info
+    # Detect visit intent from raw_content using AI
+    detected_visit = None
+    try:
+        from app.ai.service import AISummaryService
+        
+        visit_info = AISummaryService.detect_visit_intent(
+            raw_content=attendance.raw_content,
+            client_id=attendance.client_id,
+            property_id=attendance.property_id,
+            agent_id=attendance.agent_id,
+        )
+        
+        if visit_info and visit_info.get("detected"):
+            detected_visit = DetectedVisitInfo(**visit_info)
+    except Exception as e:
+        # Log error but don't fail the request
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Error detecting visit intent: {e}", exc_info=True)
+    
+    # Create response with cycle action info and detected visit
     # Use model_validate and then add cycle action fields using model_copy
     response = AttendanceResponse.model_validate(attendance)
     response = response.model_copy(update={
         'cycle_action': cycle_action,
         'previous_cycle_id': previous_cycle_id,
+        'detected_visit': detected_visit,
     })
     
     return response
@@ -286,7 +307,34 @@ def update_attendance(
         )
 
     updated_attendance = attendance_repo.update(attendance, attendance_data)
-    return AttendanceResponse.model_validate(updated_attendance)
+    
+    # Detect visit intent if raw_content was updated
+    detected_visit = None
+    if attendance_data.raw_content is not None:
+        try:
+            from app.ai.service import AISummaryService
+            from app.attendances.schemas import DetectedVisitInfo
+            
+            visit_info = AISummaryService.detect_visit_intent(
+                raw_content=updated_attendance.raw_content,
+                client_id=updated_attendance.client_id,
+                property_id=updated_attendance.property_id,
+                agent_id=updated_attendance.agent_id,
+            )
+            
+            if visit_info and visit_info.get("detected"):
+                detected_visit = DetectedVisitInfo(**visit_info)
+        except Exception as e:
+            # Log error but don't fail the request
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error detecting visit intent: {e}", exc_info=True)
+    
+    response = AttendanceResponse.model_validate(updated_attendance)
+    if detected_visit:
+        response = response.model_copy(update={'detected_visit': detected_visit})
+    
+    return response
 
 
 @router.delete("/{attendance_id}", status_code=status.HTTP_204_NO_CONTENT)
