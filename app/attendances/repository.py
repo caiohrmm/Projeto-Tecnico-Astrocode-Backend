@@ -320,6 +320,9 @@ class AttendanceRepository:
         """
         Update existing active attendance by accumulating new conversation content.
         
+        **Protection:** Only updates attendances with status ACTIVE.
+        Closed attendances (COMPLETED, LOST, ABANDONED) cannot receive new conversations.
+        
         Args:
             existing_attendance: Existing active attendance to update
             new_content: New conversation content to add
@@ -327,7 +330,24 @@ class AttendanceRepository:
             
         Returns:
             Updated attendance instance
+            
+        Raises:
+            ValueError: If attendance is not ACTIVE (cycle is closed)
         """
+        # PROTECTION: Only allow updates to ACTIVE attendances
+        # Closed cycles (COMPLETED, LOST, ABANDONED) cannot receive new conversations
+        if existing_attendance.status != AttendanceStatus.ACTIVE:
+            logger.warning(
+                f"Attempted to update closed attendance {existing_attendance.id} "
+                f"(status: {existing_attendance.status.value}) for client {existing_attendance.client_id}. "
+                "Closed cycles cannot receive new conversations. A new cycle should be created instead."
+            )
+            raise ValueError(
+                f"Cannot update attendance {existing_attendance.id}: cycle is closed "
+                f"(status: {existing_attendance.status.value}). "
+                "Closed cycles cannot receive new conversations. Create a new attendance cycle instead."
+            )
+        
         # Accumulate raw_content (add new conversation to existing)
         # TODO: Consider content size limits (e.g., max 50k chars) to avoid:
         # - High AI processing costs
@@ -1211,11 +1231,50 @@ class AttendanceRepository:
                 client_status_update.model_dump(exclude_unset=True) if hasattr(client_status_update, "model_dump") else client_status_update
             )
 
-        # Check if status is being changed to COMPLETED
+        # PROTECTION: Block raw_content updates for closed cycles
+        # Once a cycle is closed (COMPLETED, LOST, ABANDONED), no new conversations can be added
+        closed_statuses = [AttendanceStatus.COMPLETED, AttendanceStatus.LOST, AttendanceStatus.ABANDONED]
+        is_currently_closed = attendance.status in closed_statuses
+        
+        if "raw_content" in update_data and is_currently_closed:
+            logger.warning(
+                f"Attempted to update raw_content of closed attendance {attendance.id} "
+                f"(status: {attendance.status.value}) for client {attendance.client_id}. "
+                "Closed cycles cannot receive new conversations."
+            )
+            # Remove raw_content from update_data to prevent modification
+            update_data.pop("raw_content")
+            logger.info(
+                f"Removed raw_content from update for closed attendance {attendance.id}. "
+                "Other fields will still be updated if provided."
+            )
+
+        # Store previous status before update (needed for timeline event)
+        previous_status = attendance.status
+        
+        # Check if status is being changed to COMPLETED, LOST, or ABANDONED
         status_changed_to_completed = (
             "status" in update_data
             and update_data["status"] == AttendanceStatus.COMPLETED
             and attendance.status != AttendanceStatus.COMPLETED
+        )
+        
+        status_changed_to_lost = (
+            "status" in update_data
+            and update_data["status"] == AttendanceStatus.LOST
+            and attendance.status != AttendanceStatus.LOST
+        )
+        
+        status_changed_to_abandoned = (
+            "status" in update_data
+            and update_data["status"] == AttendanceStatus.ABANDONED
+            and attendance.status != AttendanceStatus.ABANDONED
+        )
+        
+        status_changed_to_closed = (
+            status_changed_to_completed
+            or status_changed_to_lost
+            or status_changed_to_abandoned
         )
 
         # Check if fields that affect AI summary are being updated
@@ -1251,6 +1310,27 @@ class AttendanceRepository:
         elif should_regen_ai:
             # Regenerate AI summary if relevant fields changed and attendance is completed
             self._process_completed_attendance(attendance)
+        
+        # If status changed to closed (COMPLETED, LOST, or ABANDONED), add timeline event
+        if status_changed_to_closed:
+            new_status = update_data.get("status")
+            status_label = {
+                AttendanceStatus.COMPLETED: "concluído",
+                AttendanceStatus.LOST: "perdido",
+                AttendanceStatus.ABANDONED: "abandonado",
+            }.get(new_status, "fechado")
+            
+            self._add_timeline_event(
+                client_id=attendance.client_id,
+                event_type=TimelineEventType.ATTENDANCE_COMPLETED,
+                title=f"Ciclo {status_label}",
+                description=f"O ciclo de atendimento foi {status_label}. Nenhuma nova conversa será acumulada neste ciclo.",
+                related_attendance_id=attendance.id,
+                event_data={
+                    "previous_status": previous_status.value if previous_status else None,
+                    "new_status": new_status.value if new_status else None,
+                },
+            )
 
         # Update client status if provided
         if attendance_data.updated_client_status:
