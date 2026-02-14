@@ -1,422 +1,462 @@
-# Desafio Técnico - Astrocode
+# 🏠 Sistema para Corretor de Imóveis com Inteligência Artificial
 
 <div align="center">
 
-**CRM Imobiliário com Inteligência Artificial**
+**Imagine um caderninho mágico que ajuda corretores a vender casas! 🪄**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 
-[Funcionalidades](#-funcionalidades) • [Arquitetura](#-arquitetura) • [Instalação](#-instalação) • [API](#-referência-da-api) • [IA](#-capacidades-de-ia)
-
 </div>
 
 ---
 
-## 🎯 Sobre o Projeto
+## 🎯 O Que Este Sistema Faz? (Explicação Simples)
 
-Sistema de CRM (Customer Relationship Management) desenvolvido para imobiliárias e corretores de imóveis. A aplicação resolve os principais desafios do setor:
+Imagine que você é um corretor de imóveis. Você tem muitas pessoas querendo comprar ou alugar casas, e muitas casas para vender. É muita coisa para lembrar, né?
 
-- **Gestão de Leads** — Acompanhamento completo do cliente desde o primeiro contato até o fechamento
-- **Insights Inteligentes** — IA analisa automaticamente cada atendimento, extraindo informações-chave e sugerindo próximos passos
-- **Histórico de Atendimentos** — Registro completo de todas as comunicações via WhatsApp, telefone, e-mail e presencial
-- **Match de Imóveis** — Recomendações inteligentes vinculando preferências do cliente aos imóveis disponíveis
-- **Analytics de Performance** — Acompanhamento de vendas, perdas e desempenho com análise de padrões por IA
+**Este sistema é como um assistente super inteligente que:**
 
-> Desenvolvido para equipes que querem gastar menos tempo com cadastros e mais tempo fechando negócios.
+1. **Lembra de todos os seus clientes** 📝
+   - Quem são eles
+   - O que eles querem (casa grande? apartamento? onde?)
+   - Quanto dinheiro eles têm
+   - Quando você falou com eles pela última vez
 
----
+2. **Anota tudo que acontece** 📖
+   - Quando você liga para um cliente
+   - Quando você manda mensagem no WhatsApp
+   - O que o cliente disse que quer
+   - Se ele gostou de alguma casa
 
-## ✨ Funcionalidades
+3. **Tem um robô mágico que lê as conversas** 🤖
+   - O robô lê tudo que você escreveu sobre o cliente
+   - Ele entende o que o cliente quer (casa de 3 quartos? apartamento no centro?)
+   - Ele sugere casas que o cliente pode gostar
+   - Ele diz: "Este cliente está muito interessado! Priorize ele!"
 
-### CRM Principal
-| Funcionalidade | Descrição |
-|----------------|-----------|
-| **Gestão de Clientes/Leads** | Acompanhamento completo do ciclo de vida com funil personalizável |
-| **Registro de Atendimentos** | Log de toda interação com clientes em todos os canais |
-| **Catálogo de Imóveis** | Gerenciamento de anúncios com fotos, detalhes e status |
-| **Agendamento de Visitas** | Agendar, confirmar e acompanhar visitas a imóveis |
-| **Gestão de Vendas** | Registro de transações com acompanhamento de comissões |
-| **Análise de Perdas** | Documentação de negócios perdidos para identificar melhorias |
+4. **Ajuda você a não esquecer nada** ✅
+   - "Lembre de ligar para a Maria amanhã"
+   - "Mostre estas 3 casas para o João"
+   - "Este cliente quer comprar logo, é urgente!"
 
-### Inteligência Artificial
-| Funcionalidade | Descrição |
-|----------------|-----------|
-| **Resumo Automático** | Todo atendimento é automaticamente resumido pela IA |
-| **Detecção de Intenção** | IA identifica intenções do cliente (comprar, alugar, agendar visita, negociar) |
-| **Enriquecimento de Perfil** | Extrai automaticamente orçamento, preferências de localização e tipo de imóvel |
-| **Lead Scoring** | Pontuação dinâmica baseada na análise das interações |
-| **Assistente em Tempo Real** | Sugestões ao vivo durante o atendimento (perguntas, imóveis para mostrar) |
-| **Classificação de Leads** | Novos leads são automaticamente pontuados e priorizados |
-| **Análise de Padrões de Perda** | IA identifica tendências em negócios perdidos |
+5. **Mostra o que está funcionando** 📊
+   - Quantas vendas você fez este mês
+   - Quais clientes estão quase fechando negócio
+   - O que você pode fazer melhor
 
-### Segurança e Autenticação
-- Autenticação JWT com expiração configurável
-- Integração com Google OAuth 2.0
-- Controle de acesso por papéis (Gestor, Corretor, Atendente)
+**Em resumo:** É como ter um assistente que nunca esquece nada, sempre sabe o que fazer, e ajuda você a vender mais casas! 🎉
 
 ---
 
-## 🏗️ Arquitetura
+## 🎨 Como Funciona? (Passo a Passo Simples)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                       Aplicação FastAPI                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │   Auth   │ │ Clientes │ │Atendimen.│ │ Imóveis  │           │
-│  │  Módulo  │ │  Módulo  │ │  Módulo  │ │  Módulo  │           │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘           │
-│       │            │            │            │                   │
-│  ┌────┴────────────┴────────────┴────────────┴─────┐            │
-│  │                 Serviços de IA                   │            │
-│  │  • Integração Gemini    • Análise em Tempo Real │            │
-│  │  • Jornada do Cliente   • Classificação de Lead │            │
-│  └─────────────────────────────────────────────────┘            │
-│                              │                                   │
-│  ┌───────────────────────────┴───────────────────────┐          │
-│  │              SQLAlchemy ORM + Alembic             │          │
-│  └───────────────────────────────────────────────────┘          │
-│                              │                                   │
-└──────────────────────────────┼──────────────────────────────────┘
-                               │
-                    ┌──────────┴──────────┐
-                    │    PostgreSQL       │
-                    │    Banco de Dados   │
-                    └─────────────────────┘
-```
+### 1️⃣ Um Cliente Chega
 
-### Estrutura do Projeto
+**O que acontece:**
+- Você cadastra o cliente no sistema
+- O robô mágico (IA) lê as informações e dá uma "nota" para o cliente
+- Quanto maior a nota, mais interessado ele está!
 
-```
-app/
-├── ai/                 # Serviços de IA e integração Gemini
-│   ├── gemini_service.py      # Cliente da API Google Gemini
-│   ├── realtime_assistant.py  # Análise em tempo real durante atendimento
-│   ├── lead_classifier.py     # Pontuação automática de leads
-│   ├── journey_service.py     # Análise da jornada do cliente
-│   └── service.py             # Sumarização de atendimentos
-├── auth/               # Autenticação e autorização
-│   ├── jwt.py                 # Geração/validação de tokens
-│   ├── oauth_service.py       # Integração Google OAuth
-│   └── dependencies.py        # Dependências de auth FastAPI
-├── clients/            # Domínio de Clientes/Leads
-│   ├── models.py              # Modelos SQLAlchemy
-│   ├── timeline_models.py     # Eventos da jornada do cliente
-│   └── score_service.py       # Lógica de pontuação de leads
-├── attendances/        # Domínio de Atendimentos
-├── properties/         # Domínio de Imóveis
-├── visits/             # Domínio de Visitas
-├── sales/              # Domínio de Vendas
-├── losses/             # Domínio de Perdas e Análise
-├── users/              # Gestão de Usuários e Papéis
-├── config/             # Configurações da aplicação
-├── db/                 # Sessão do banco e modelos base
-└── main.py             # Ponto de entrada da aplicação
-```
+### 2️⃣ Você Atende o Cliente
+
+**O que acontece:**
+- Você registra a conversa (pode ser por telefone, WhatsApp, presencial)
+- Você escreve o que o cliente disse
+- O robô mágico lê tudo e entende:
+  - "Ah! Ele quer um apartamento de 3 quartos!"
+  - "Ele tem R$ 500.000 para gastar"
+  - "Ele quer mudar em 2 meses (é urgente!)"
+
+### 3️⃣ O Sistema Sugere Casas
+
+**O que acontece:**
+- O robô mágico procura casas que combinam com o que o cliente quer
+- Ele mostra: "Olha! Estas 3 casas são perfeitas para ele!"
+- Você pode mostrar essas casas para o cliente
+
+### 4️⃣ Você Agenda uma Visita
+
+**O que acontece:**
+- Você marca quando vai mostrar a casa
+- O sistema lembra você da visita
+- Depois da visita, você anota se o cliente gostou
+
+### 5️⃣ Se o Cliente Comprou! 🎉
+
+**O que acontece:**
+- Você registra a venda
+- O sistema entende que o objetivo foi alcançado
+- Ele sugere: "Agora você precisa preparar os documentos!"
+
+### 6️⃣ Se o Cliente Não Comprou 😔
+
+**O que acontece:**
+- Você registra o que aconteceu
+- O robô mágico aprende: "Ah, este tipo de cliente não comprou porque..."
+- Isso ajuda você a melhorar no futuro!
 
 ---
 
-## 🚀 Instalação
+## 🧩 As Partes do Sistema (Como um Quebra-Cabeça)
 
-### Pré-requisitos
+O sistema tem várias "caixinhas" que fazem coisas diferentes:
 
-- Python 3.11 ou superior
-- PostgreSQL 13+
-- Chave da API Google Gemini (para recursos de IA)
+### 📱 **Clientes** (A Caixinha das Pessoas)
+- Guarda informações de todas as pessoas que querem comprar/alugar
+- Lembra o que cada uma quer
+- Mostra quem está mais perto de comprar
 
-### Passo a Passo
+### 💬 **Atendimentos** (A Caixinha das Conversas)
+- Guarda todas as vezes que você falou com alguém
+- O robô mágico lê essas conversas e entende o que o cliente quer
+- Cria um resumo automático de cada conversa
+
+### 🏘️ **Imóveis** (A Caixinha das Casas)
+- Guarda informações de todas as casas/apartamentos à venda
+- Tem fotos, preço, localização
+- O sistema procura casas que combinam com o que o cliente quer
+
+### 🚗 **Visitas** (A Caixinha dos Agendamentos)
+- Lembra quando você vai mostrar uma casa
+- Ajuda você a não esquecer de nenhuma visita
+
+### 💰 **Vendas** (A Caixinha do Dinheiro)
+- Registra quando uma venda aconteceu
+- Calcula quanto você ganhou de comissão
+
+### 🤖 **Inteligência Artificial** (O Robô Mágico)
+- Lê todas as conversas
+- Entende o que o cliente quer
+- Sugere o que fazer
+- Aprende com o tempo
+
+---
+
+## 🚀 Como Começar a Usar? (Instruções Simples)
+
+### Passo 1: Preparar o Computador
+
+Você precisa ter instalado:
+- **Python** (versão 3.11 ou mais nova) - É a linguagem que o sistema usa
+- **PostgreSQL** (versão 13 ou mais nova) - É onde guardamos todas as informações
+- **Chave da API Google Gemini** - É o que faz o robô mágico funcionar
+
+### Passo 2: Baixar o Sistema
 
 ```bash
-# Clone o repositório
+# Baixar o sistema do computador
 git clone <url-do-repositorio>
 cd Projeto-Tecnico-Astrocode-Backend
 
-# Crie o ambiente virtual
+# Criar um "ambiente virtual" (é como uma caixinha separada para o sistema)
 python -m venv .venv
 
-# Ative o ambiente
-# Windows:
+# Entrar na caixinha
+# No Windows:
 .venv\Scripts\activate
-# Linux/Mac:
+# No Linux/Mac:
 source .venv/bin/activate
 
-# Instale as dependências
+# Instalar todas as "peças" que o sistema precisa
 pip install -e .
 ```
 
-### Configuração
+### Passo 3: Configurar o Sistema
 
-Crie um arquivo `.env` na raiz do projeto:
+Crie um arquivo chamado `.env` na pasta do projeto e coloque estas informações:
 
 ```env
-# Banco de Dados
+# Onde guardar as informações (banco de dados)
 DATABASE_URL=postgresql://usuario:senha@localhost:5432/real_estate_crm
 
-# Autenticação JWT
+# Uma senha secreta para proteger o sistema
 JWT_SECRET_KEY=sua-chave-secreta-mude-em-producao
 JWT_ALGORITHM=HS256
 JWT_EXPIRATION_HOURS=24
 
-# IA (Google Gemini)
+# A chave do robô mágico (Google Gemini)
 GEMINI_API_KEY=sua-chave-gemini
 
-# Google OAuth (opcional)
+# Configurações do Google (opcional - para fazer login com Google)
 GOOGLE_CLIENT_ID=seu-google-client-id
 GOOGLE_CLIENT_SECRET=seu-google-client-secret
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
 
-# Cloudinary (opcional, para upload de imagens)
-CLOUDINARY_CLOUD_NAME=seu-cloud-name
-CLOUDINARY_API_KEY=sua-api-key
-CLOUDINARY_API_SECRET=seu-api-secret
-
-# URL do Frontend
+# Onde o sistema vai rodar
 FRONTEND_URL=http://localhost:5173
 ```
 
-### Configurar Banco de Dados
+### Passo 4: Preparar o Banco de Dados
 
 ```bash
-# Criar banco de dados
+# Criar o "armário" onde vamos guardar tudo
 psql -U postgres -c "CREATE DATABASE real_estate_crm;"
 
-# Executar migrações
+# Organizar o armário (criar as gavetas e prateleiras)
 alembic upgrade head
 ```
 
-### Executar o Servidor
+### Passo 5: Ligar o Sistema
 
 ```bash
+# Ligar o sistema (ele vai "acordar" e ficar pronto para usar)
 uvicorn app.main:app --reload --port 8000
 ```
 
-A API estará disponível em:
-- **Base da API:** http://localhost:8000
-- **Documentação Interativa (Swagger):** http://localhost:8000/docs
-- **Documentação Alternativa (ReDoc):** http://localhost:8000/redoc
-- **Health Check:** http://localhost:8000/health
+Agora o sistema está funcionando! 🎉
 
-### Criar Primeiro Usuário
+Você pode acessar:
+- **A tela principal:** http://localhost:8000
+- **A documentação (para ver como usar):** http://localhost:8000/docs
+- **Outra documentação:** http://localhost:8000/redoc
+
+### Passo 6: Criar o Primeiro Usuário
 
 ```bash
-# Criar usuário gestor
+# Criar um usuário "chefe" (que pode fazer tudo)
 python scripts/create_manager.py --email admin@exemplo.com --password senha123 --name "Admin"
 
-# Ou criar usuário de teste
+# Ou criar um usuário de teste
 python scripts/create_test_user.py
 ```
 
 ---
 
-## 📚 Referência da API
+## 📚 Como Usar o Sistema? (Guia Rápido)
 
-### Autenticação
+### 🔐 Entrar no Sistema
 
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `POST` | `/auth/login` | Login com email/senha |
-| `GET` | `/auth/me` | Obter info do usuário atual |
-| `GET` | `/auth/google/login` | Iniciar fluxo Google OAuth |
-| `GET` | `/auth/google/callback` | Callback do OAuth |
+1. Abra o sistema no navegador
+2. Digite seu email e senha
+3. Clique em "Entrar"
+4. Pronto! Você está dentro! 🎉
 
-### Clientes
+### 👥 Cadastrar um Cliente
 
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/clients/` | Listar clientes com filtros |
-| `POST` | `/clients/` | Criar cliente (classificação automática por IA) |
-| `GET` | `/clients/{id}` | Obter detalhes do cliente |
-| `PUT` | `/clients/{id}` | Atualizar cliente |
-| `DELETE` | `/clients/{id}` | Excluir cliente e dados relacionados |
+1. Vá em "Clientes"
+2. Clique em "Novo Cliente"
+3. Preencha:
+   - Nome da pessoa
+   - Telefone
+   - Email (se tiver)
+   - O que ela quer (comprar? alugar?)
+4. Clique em "Salvar"
+5. O robô mágico já vai analisar e dar uma nota para o cliente!
 
-### Atendimentos
+### 💬 Registrar um Atendimento
 
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/attendances/` | Listar atendimentos |
-| `POST` | `/attendances/` | Criar atendimento (dispara análise IA) |
-| `GET` | `/attendances/{id}` | Obter atendimento com resumo IA |
-| `PUT` | `/attendances/{id}` | Atualizar atendimento |
+1. Vá no cliente que você quer registrar
+2. Clique em "Novo Atendimento"
+3. Escolha como foi (telefone? WhatsApp? presencial?)
+4. Escreva o que o cliente disse
+5. Clique em "Salvar"
+6. O robô mágico vai ler tudo e:
+   - Criar um resumo
+   - Entender o que o cliente quer
+   - Sugerir casas que combinam
+   - Dizer o que fazer depois
 
-### Endpoints de IA
+### 🏠 Cadastrar um Imóvel
 
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `POST` | `/ai/realtime/analyze` | Análise de texto em tempo real |
-| `GET` | `/ai/journey/{client_id}` | Contexto da jornada do cliente por IA |
-| `POST` | `/ai/chat` | Assistente de IA conversacional |
-| `GET` | `/losses/patterns` | Análise de padrões de perda por IA |
+1. Vá em "Imóveis"
+2. Clique em "Novo Imóvel"
+3. Preencha:
+   - Tipo (casa? apartamento?)
+   - Endereço
+   - Preço
+   - Fotos
+   - Descrição
+4. Clique em "Salvar"
 
-### Imóveis, Visitas, Vendas, Perdas
+### 🚗 Agendar uma Visita
 
-Operações CRUD completas disponíveis. Veja `/docs` para referência completa.
+1. Vá no cliente
+2. Clique em "Agendar Visita"
+3. Escolha qual casa você vai mostrar
+4. Escolha data e hora
+5. Clique em "Salvar"
+6. O sistema vai lembrar você da visita!
 
----
+### 💰 Registrar uma Venda
 
-## 🤖 Capacidades de IA
-
-### Como a IA Melhora Cada Interação
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   ATENDIMENTO CRIADO                         │
-│  "Cliente quer apartamento 3 quartos no centro,              │
-│   orçamento em torno de 500 mil, precisa mudar em 2 meses"  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    🤖 PROCESSAMENTO IA                       │
-├─────────────────────────────────────────────────────────────┤
-│  ✓ Resumo: "Interessado em apto centro, 3 quartos, 500k"   │
-│  ✓ Intenção: SOLICITAÇÃO_INFORMAÇÕES                        │
-│  ✓ Tipo de Interesse: COMPRA                                │
-│  ✓ Tipo de Imóvel: APARTAMENTO                              │
-│  ✓ Orçamento: R$ 450.000 - R$ 550.000                       │
-│  ✓ Urgência: ALTA (prazo de 2 meses)                        │
-│  ✓ Lead Score: 85/100                                        │
-│  ✓ Próximos Passos Sugeridos:                               │
-│    1. Agendar visitas em 3 imóveis compatíveis              │
-│    2. Discutir opções de financiamento                       │
-│  ✓ Imóveis Recomendados: [Apto 301, Apto 412, Apto 205]     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│              PERFIL DO CLIENTE ATUALIZADO                    │
-│  • Status: NEW_LEAD → QUALIFIED                              │
-│  • Orçamento: R$ 450k - 550k                                 │
-│  • Cidade: Centro                                            │
-│  • Tipo de Imóvel: Apartamento                               │
-│  • Urgência: ALTA                                            │
-│  • Lead Score: 85                                            │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Assistente em Tempo Real
-
-Durante a criação do atendimento, a IA fornece sugestões ao vivo:
-
-- **Detecção de Informações** — Orçamento, localização, preferências de imóvel
-- **Sugestões de Perguntas** — "Perguntar sobre preferência de financiamento", "Esclarecer prazo de mudança"
-- **Match de Imóveis** — "3 imóveis compatíveis: clique para adicionar"
-- **Reconhecimento de Intenção** — Detecta quando cliente quer agendar visita ou negociar
+1. Vá no cliente que comprou
+2. Clique em "Registrar Venda"
+3. Escolha qual imóvel foi vendido
+4. Coloque o valor da venda
+5. Clique em "Salvar"
+6. O sistema vai entender que o objetivo foi alcançado! 🎉
 
 ---
 
-## 🗃️ Migrações do Banco de Dados
+## 🤖 Como o Robô Mágico (IA) Funciona?
+
+O robô mágico usa o **Google Gemini** (uma inteligência artificial muito esperta).
+
+### O Que Ele Faz:
+
+1. **Lê Conversas** 📖
+   - Quando você escreve sobre um atendimento, ele lê tudo
+   - Ele entende português muito bem!
+
+2. **Entende o Que o Cliente Quer** 🎯
+   - "Quero um apartamento de 3 quartos" → Ele entende: tipo=apartamento, quartos=3
+   - "Tenho 500 mil" → Ele entende: orçamento=R$ 500.000
+   - "Preciso mudar em 2 meses" → Ele entende: urgência=ALTA
+
+3. **Sugere Casas** 🏠
+   - Ele procura casas que combinam com o que o cliente quer
+   - Mostra as melhores opções
+
+4. **Dá Notas aos Clientes** ⭐
+   - Cliente muito interessado = nota alta (80-100)
+   - Cliente só olhando = nota baixa (0-30)
+   - Isso ajuda você a saber em quem focar!
+
+5. **Sugere o Que Fazer** 💡
+   - "Agende uma visita"
+   - "Envie mais informações"
+   - "Este cliente está quase fechando, priorize!"
+
+6. **Aprende com o Tempo** 📈
+   - Quanto mais você usa, mais ele aprende
+   - Ele fica melhor em entender o que os clientes querem
+
+---
+
+## 🏗️ Como o Sistema é Feito? (Para Quem Quer Entender Mais)
+
+O sistema tem duas partes principais:
+
+### 🔧 Backend (O "Motor" do Sistema)
+- **Linguagem:** Python
+- **Framework:** FastAPI (faz o sistema funcionar rápido)
+- **Banco de Dados:** PostgreSQL (guarda todas as informações)
+- **IA:** Google Gemini (o robô mágico)
+
+### 🎨 Frontend (A "Cara" do Sistema)
+- **Linguagem:** JavaScript
+- **Framework:** Vue.js (faz a tela bonita e interativa)
+- **Biblioteca de Design:** Vuetify (deixa tudo bonito)
+
+### Como Eles Se Comunicam:
+
+```
+Você (no navegador)
+    ↓
+Frontend (Vue.js) - A tela que você vê
+    ↓
+Backend (FastAPI) - O cérebro que pensa
+    ↓
+Banco de Dados (PostgreSQL) - A memória que guarda tudo
+    ↓
+IA (Google Gemini) - O robô mágico que ajuda
+```
+
+---
+
+## 🔒 Segurança (Como Proteger o Sistema)
+
+O sistema tem várias "trancas" para proteger suas informações:
+
+1. **Senha Forte** 🔐
+   - Você precisa de email e senha para entrar
+   - A senha é criptografada (ninguém consegue ver)
+
+2. **Tokens** 🎫
+   - Quando você entra, o sistema te dá um "ticket"
+   - Você precisa mostrar esse ticket para fazer coisas
+   - O ticket expira depois de um tempo
+
+3. **Permissões** 👮
+   - Diferentes pessoas podem fazer coisas diferentes:
+     - **Chefe:** Pode fazer tudo
+     - **Corretor:** Pode gerenciar clientes e vendas
+     - **Atendente:** Pode só criar atendimentos
+
+4. **Login com Google** 🌐
+   - Você pode entrar usando sua conta do Google
+   - Mais fácil e seguro!
+
+---
+
+## 🧪 Testar o Sistema
+
+Se você quer testar se tudo está funcionando:
 
 ```bash
-# Ver status atual das migrações
-alembic current
-
-# Aplicar todas as migrações pendentes
-alembic upgrade head
-
-# Criar nova migração (após alterar modelos)
-alembic revision --autogenerate -m "Descrição das alterações"
-
-# Reverter última migração
-alembic downgrade -1
-
-# Ver histórico de migrações
-alembic history
-```
-
----
-
-## 🔐 Segurança
-
-### Variáveis de Ambiente
-
-| Variável | Obrigatória | Descrição |
-|----------|-------------|-----------|
-| `DATABASE_URL` | ✅ | String de conexão PostgreSQL |
-| `JWT_SECRET_KEY` | ✅ | Segredo para assinatura JWT (use valor aleatório forte) |
-| `GEMINI_API_KEY` | ⚠️ | Necessária para recursos de IA |
-| `GOOGLE_CLIENT_ID` | ❌ | Para Google OAuth |
-| `GOOGLE_CLIENT_SECRET` | ❌ | Para Google OAuth |
-| `CLOUDINARY_*` | ❌ | Para upload de imagens |
-
-### Controle de Acesso por Papéis
-
-| Papel | Permissões |
-|-------|------------|
-| **Gestor** | Acesso total, gestão de usuários, relatórios |
-| **Corretor** | Gerenciar clientes, atendimentos, imóveis, vendas |
-| **Atendente** | Criar atendimentos, visualizar clientes |
-
----
-
-## 🧪 Testes
-
-```bash
-# Instalar dependências de desenvolvimento
+# Instalar ferramentas de teste
 pip install -e ".[dev]"
 
-# Executar testes
+# Rodar os testes
 pytest
 
-# Executar com cobertura
+# Ver se o código está bom
 pytest --cov=app
 ```
 
 ---
 
-## 📖 Documentação Adicional
+## ❓ Problemas Comuns (E Como Resolver)
 
-- [Guia de Autenticação](docs/AUTHENTICATION.md) — Documentação detalhada do fluxo de auth
-- [Vinculação de Usuários OAuth](docs/OAUTH_USER_LINKING.md) — Como contas OAuth são vinculadas
-- [Documentação do Sistema](docs/DOCUMENTACAO_SISTEMA.md) — Fluxo completo do sistema
+### ❌ "Erro de conexão com banco de dados"
+
+**O que fazer:**
+- Verifique se o PostgreSQL está rodando
+- Verifique se a `DATABASE_URL` no arquivo `.env` está correta
+- Teste: `psql -U seu_usuario -d real_estate_crm -c "SELECT 1;"`
+
+### ❌ "ModuleNotFoundError"
+
+**O que fazer:**
+- Certifique-se de que o ambiente virtual está ativado
+- Reinstale as dependências: `pip install -e . --force-reinstall`
+
+### ❌ "Robô mágico não funciona"
+
+**O que fazer:**
+- Verifique se `GEMINI_API_KEY` está no arquivo `.env`
+- Verifique se a chave é válida
+- O sistema funciona sem IA, mas com menos recursos
+
+### ❌ "Porta já está sendo usada"
+
+**O que fazer:**
+- Use outra porta: `uvicorn app.main:app --reload --port 8001`
 
 ---
 
-## 🛠️ Solução de Problemas
+## 📖 Documentação Extra
 
-<details>
-<summary><strong>Erro de conexão com banco de dados</strong></summary>
+Se você quiser entender mais profundamente:
 
-Verifique se o PostgreSQL está rodando e se `DATABASE_URL` está correta:
-```bash
-psql -U seu_usuario -d real_estate_crm -c "SELECT 1;"
-```
-</details>
+- [Como Funciona a Autenticação](docs/AUTHENTICATION.md) - Como o login funciona
+- [Como Funciona o Sistema](docs/DOCUMENTACAO_SISTEMA.md) - Explicação completa
+- [Fluxo de Cliente e Imóvel](docs/FLUXO_CLIENTE_IMOVEL_ATENDIMENTO.md) - Como tudo se conecta
 
-<details>
-<summary><strong>ModuleNotFoundError</strong></summary>
+---
 
-Certifique-se de que o ambiente virtual está ativado e dependências instaladas:
-```bash
-source .venv/bin/activate  # ou .venv\Scripts\activate no Windows
-pip install -e . --force-reinstall
-```
-</details>
+## 🎉 Resumo Final
 
-<details>
-<summary><strong>Recursos de IA não funcionando</strong></summary>
+**Este sistema é como ter um assistente super inteligente que:**
 
-Verifique se `GEMINI_API_KEY` está definida no `.env` e é válida. O sistema fará fallback para análise básica se a IA estiver indisponível.
-</details>
+✅ Lembra de todos os seus clientes  
+✅ Anota todas as conversas  
+✅ Entende o que cada cliente quer  
+✅ Sugere casas que combinam  
+✅ Diz o que fazer em cada situação  
+✅ Ajuda você a vender mais!  
 
-<details>
-<summary><strong>Porta já em uso</strong></summary>
-
-Use uma porta diferente:
-```bash
-uvicorn app.main:app --reload --port 8001
-```
-</details>
+**É como ter um superpoder para vender imóveis!** 🦸‍♂️
 
 ---
 
 <div align="center">
 
-**Desenvolvido como Desafio Técnico para a vaga na Astrocode**
+**Desenvolvido como Desafio Técnico para a vaga na Astrocode** 🚀
 
-[⬆ Voltar ao topo](#desafio-técnico---astrocode)
+[⬆ Voltar ao topo](#-sistema-para-corretor-de-imóveis-com-inteligência-artificial)
 
 </div>
