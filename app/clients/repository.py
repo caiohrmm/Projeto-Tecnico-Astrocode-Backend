@@ -188,6 +188,7 @@ class ClientRepository:
             "current_budget_min",
             "current_budget_max",
             "current_urgency_level",
+            "current_status",  # ⚠️ Status is now AI-controlled based on attendance cycle
         ]
         
         # Remove AI-controlled fields if provided manually (unless explicitly allowed)

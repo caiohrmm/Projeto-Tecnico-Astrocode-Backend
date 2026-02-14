@@ -1232,11 +1232,9 @@ class AttendanceRepository:
                 old_values[field_name] = json_serializable_value(current_value)
                 update_data[field_name] = suggestion.suggested_value
         
-        # Update current_status based on detected intent and context (legacy logic for status progression)
-        new_status = self._determine_client_status_from_ai(client, ai_summary)
-        if new_status and client.current_status != new_status:
-            old_values["current_status"] = client.current_status.value if client.current_status else None
-            update_data["current_status"] = new_status
+        # ⚠️ Status is now AI-controlled through State Derivation Service suggestions
+        # The legacy _determine_client_status_from_ai is no longer used for status updates
+        # Status updates come from StructuredSignal.client_status in the suggestions
 
         # Always update last_contact_at
         update_data["last_contact_at"] = datetime.utcnow()

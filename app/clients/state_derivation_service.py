@@ -40,6 +40,7 @@ class StructuredSignal(BaseModel):
     budget_max: Optional[float] = None
     urgency_level: Optional[UrgencyLevel] = None
     lead_score: Optional[int] = None
+    client_status: Optional[ClientStatus] = None  # ⚠️ Status detected from attendance cycle
     
     # Metadata for traceability
     source_attendance_id: uuid.UUID
@@ -157,6 +158,18 @@ class ClientStateDerivationService:
         if attendance:
             attendance_status = attendance.status.value if attendance.status else None
         
+        # ⚠️ Detect client status based on attendance cycle context
+        # Status is derived from: intent, visits, sentiment, attendance status, lead_score
+        client_status = None
+        if attendance:
+            client_status = ClientStateDerivationService._detect_client_status_from_signal(
+                ai_summary=ai_summary,
+                attendance=attendance,
+                detected_intent=ai_summary.detected_intent.value if ai_summary.detected_intent else None,
+                sentiment=ai_summary.sentiment.value if ai_summary.sentiment else None,
+                lead_score=ai_summary.lead_score_suggested,
+            )
+        
         signal = StructuredSignal(
             interest_type=interest_type,
             property_type=property_type,
@@ -165,6 +178,7 @@ class ClientStateDerivationService:
             budget_max=ai_summary.budget_max_detected,
             urgency_level=urgency_level,
             lead_score=ai_summary.lead_score_suggested,
+            client_status=client_status,  # ⚠️ Status detected from attendance cycle
             source_attendance_id=ai_summary.attendance_id,
             source_ai_summary_id=ai_summary.id,
             detected_at=ai_summary.created_at,
@@ -175,6 +189,89 @@ class ClientStateDerivationService:
         )
         
         return signal
+    
+    @staticmethod
+    def _detect_client_status_from_signal(
+        ai_summary: AISummary,
+        attendance: Optional[Attendance] = None,
+        detected_intent: Optional[str] = None,
+        sentiment: Optional[str] = None,
+        lead_score: Optional[int] = None,
+    ) -> Optional[ClientStatus]:
+        """
+        Detect client status from attendance cycle context.
+        
+        Status detection logic:
+        - If attendance is COMPLETED → WON
+        - If attendance is LOST → LOST
+        - If intent is SCHEDULE_VISIT → VISIT_SCHEDULED
+        - If intent is PRICE_NEGOTIATION → NEGOTIATING
+        - If intent is PROPERTY_SEARCH + budget → QUALIFIED, else CONTACTED
+        - If lead_score high (>=80) + positive sentiment → NEGOTIATING or QUALIFIED
+        - If lead_score medium (60-79) → QUALIFIED or CONTACTED
+        - If lead_score low (<60) → NEW_LEAD or CONTACTED
+        
+        Args:
+            ai_summary: AI Summary instance
+            attendance: Attendance instance (for status)
+            detected_intent: Detected intent from AI
+            sentiment: Detected sentiment
+            lead_score: Suggested lead score
+            
+        Returns:
+            Suggested ClientStatus or None
+        """
+        # Priority 1: Attendance status determines client status
+        if attendance:
+            if attendance.status == AttendanceStatus.COMPLETED:
+                return ClientStatus.WON
+            elif attendance.status == AttendanceStatus.LOST:
+                return ClientStatus.LOST
+        
+        # Priority 2: Intent-based status
+        if detected_intent == "SCHEDULE_VISIT":
+            return ClientStatus.VISIT_SCHEDULED
+        elif detected_intent == "PRICE_NEGOTIATION":
+            return ClientStatus.NEGOTIATING
+        elif detected_intent == "PROPERTY_SEARCH":
+            # If has budget and interest → QUALIFIED, else CONTACTED
+            if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
+                return ClientStatus.QUALIFIED
+            else:
+                return ClientStatus.CONTACTED
+        
+        # Priority 3: Lead score + sentiment based status
+        if lead_score is not None:
+            if lead_score >= 80:
+                # Very hot lead → likely negotiating or ready for proposal
+                if sentiment == "POSITIVE":
+                    return ClientStatus.NEGOTIATING
+                else:
+                    return ClientStatus.QUALIFIED
+            elif lead_score >= 60:
+                # Hot lead → qualified or visiting
+                if sentiment == "POSITIVE":
+                    return ClientStatus.QUALIFIED
+                else:
+                    return ClientStatus.CONTACTED
+            elif lead_score >= 40:
+                # Warm lead → contacted or qualified (if has budget)
+                if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
+                    return ClientStatus.QUALIFIED
+                else:
+                    return ClientStatus.CONTACTED
+            else:
+                # Cold lead → new lead or contacted
+                return ClientStatus.NEW_LEAD
+        
+        # Default: If has interest type and budget → CONTACTED, else NEW_LEAD
+        if ai_summary.interest_type_detected:
+            if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
+                return ClientStatus.CONTACTED
+            else:
+                return ClientStatus.NEW_LEAD
+        
+        return None  # No status detected
     
     @staticmethod
     def get_all_signals_for_client(
@@ -524,6 +621,21 @@ class ClientStateDerivationService:
                                     reason=f"AI suggested lead_score from attendance {signal.source_attendance_id}",
                                 )
                                 suggestions.append(direct_suggestion)
+                        
+                        # Create suggestion for client_status if present (AI-controlled status)
+                        if signal.client_status:
+                            suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                                client=client,
+                                signal=signal,
+                                reference_time=reference_time,
+                                field_name="status",
+                                cluster_context=True,
+                                cluster_size=len(best_cluster_signals),
+                                current_cluster_score=current_cluster_score,
+                                new_cluster_score=best_cluster_score,
+                            )
+                            if suggestion:
+                                suggestions.append(suggestion)
         else:
             # Fallback: original field-by-field logic (for backward compatibility)
             field_signals = {
@@ -759,6 +871,9 @@ class ClientStateDerivationService:
             elif signal.lead_score is not None:
                 field_name = "lead_score"
                 suggested_value = signal.lead_score
+            elif signal.client_status:
+                field_name = "status"
+                suggested_value = signal.client_status
             else:
                 return None
         else:
@@ -778,6 +893,9 @@ class ClientStateDerivationService:
                 suggested_value = signal.urgency_level
             elif field_name == "lead_score":
                 suggested_value = signal.lead_score
+            elif field_name == "status":
+                suggested_value = signal.client_status
+                field_name = "status"  # Map to client field name
             else:
                 return None
         
@@ -785,13 +903,19 @@ class ClientStateDerivationService:
             return None
         
         # Extract current value
-        current_value = getattr(client, f"current_{field_name}", None)
+        # Map field_name to client attribute name
+        if field_name == "status":
+            current_value = client.current_status
+            field_name_for_attr = "current_status"
+        else:
+            current_value = getattr(client, f"current_{field_name}", None)
+            field_name_for_attr = f"current_{field_name}"
         
-        # For lead_score, always create suggestion (AI-controlled, should always update)
+        # For lead_score and status, always create suggestion (AI-controlled, should always update)
         # For other fields, only suggest if value is different
-        if field_name == "lead_score":
-            # Always create suggestion for lead_score, even if value is the same
-            # This ensures lead_score can be updated based on new context/confidence
+        if field_name == "lead_score" or field_name == "status":
+            # Always create suggestion for lead_score and status, even if value is the same
+            # This ensures they can be updated based on new context/confidence
             pass
         elif field_name == "city_interest" and current_value and suggested_value:
             # For city, use case-insensitive comparison
@@ -817,7 +941,7 @@ class ClientStateDerivationService:
         reason = f"Detectado por IA ({', '.join(reason_parts)})"
         
         return ClientStateSuggestion(
-            field_name=f"current_{field_name}",
+            field_name=field_name_for_attr,
             suggested_value=suggested_value,
             source_attendance_id=signal.source_attendance_id,
             source_ai_summary_id=signal.source_ai_summary_id,
