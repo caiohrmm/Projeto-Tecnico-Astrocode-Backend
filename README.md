@@ -93,20 +93,24 @@ Sistema completo de CRM (Customer Relationship Management) desenvolvido especifi
 
 O sistema utiliza **Google Gemini AI** para processar e analisar todas as interações com clientes, fornecendo insights acionáveis em tempo real.
 
-### 1. Classificação Automática de Leads
+### 1. Atualização Automática de Perfil do Cliente
 
-**Quando:** Ao criar um novo cliente no sistema
+**Quando:** Automaticamente a cada atendimento registrado ou atualizado
 
 **O que faz:**
-- Analisa informações básicas (nome, telefone, email, origem do lead)
-- Gera **Lead Score** inicial (0-100)
-- Detecta **Nível de Urgência** (LOW, MEDIUM, HIGH, IMMEDIATE)
-- Identifica **Tipo de Interesse** (BUY, RENT, SELL, INVEST)
-- Sugere **Tipo de Imóvel** preferido
-- Extrai **Orçamento** (mínimo e máximo)
-- Identifica **Cidade de Interesse**
+- **Valores iniciais padrão** ao criar cliente:
+  - Status: `NEW_LEAD`
+  - Lead Score: `30` (base)
+  - Urgência: `MEDIUM`
+- **Atualização contínua** através de atendimentos:
+  - Analisa cada conversa no ciclo ACTIVE
+  - Detecta mudanças em interesse, orçamento, urgência
+  - Atualiza perfil incrementalmente conforme o ciclo progride
+  - **Lead Score** aumenta gradualmente conforme mais dados são coletados
 
-**Implementação:** `app/ai/lead_classifier.py`
+**⚠️ IMPORTANTE:** O sistema não utiliza mais classificação inicial explícita. Todos os campos do perfil são atualizados automaticamente pela IA através da análise de atendimentos no ciclo ACTIVE.
+
+**Implementação:** `app/clients/state_derivation_service.py` e `app/attendances/repository.py`
 
 ### 2. Análise de Atendimentos (AI Summary)
 
@@ -168,10 +172,10 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 
 ### 5. Derivação de Estado do Cliente (State Derivation)
 
-**Quando:** Após cada análise de atendimento pela IA
+**Quando:** Após cada análise de atendimento pela IA no ciclo ACTIVE
 
 **O que faz:**
-- **Consolida sinais** de múltiplos atendimentos
+- **Consolida sinais** apenas do ciclo ACTIVE atual (não histórico)
 - **Atualiza incrementalmente** o perfil do cliente:
   - Tipo de interesse (BUY, RENT, SELL, INVEST)
   - Tipo de imóvel preferido
@@ -179,18 +183,32 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
   - Orçamento mínimo e máximo
   - Nível de urgência
   - **Lead Score** (atualizado gradualmente conforme o ciclo de atendimento)
-- **Anti-flip logic**: Previne oscilações bruscas nos valores
+  - **Status** (detectado baseado em intent, sentiment, visits, lead_score)
+- **Anti-flip logic**: Previne oscilações bruscas nos valores (exceto lead_score e status)
 - **Rastreabilidade**: Cada valor tem origem rastreável (qual atendimento gerou)
 - **Priorização**: Sinais mais recentes e com maior confiança têm mais peso
+- **Cluster logic**: Agrupa sinais por Attendance para evitar misturar contextos diferentes
+
+**⚠️ CRÍTICO - Proteções Implementadas:**
+1. **Nunca pode existir 2 ACTIVE**: Sistema garante apenas um ciclo ACTIVE por cliente
+2. **Não atualiza de ciclo fechado**: Perfil só é atualizado a partir de ciclos ACTIVE
+3. **Toda atualização passa pelo ciclo**: Campos AI-controlados só podem ser atualizados via atendimentos
+4. **Mantém estado se não houver ACTIVE**: Se não houver ciclo ACTIVE, perfil mantém último estado até novo ciclo surgir
 
 **Campos controlados exclusivamente pela IA:**
-- `current_interest_type`
-- `current_property_type`
-- `current_city_interest`
-- `current_budget_min`
-- `current_budget_max`
-- `current_urgency_level`
-- `current_lead_score`
+- `current_interest_type` - Tipo de interesse (BUY, RENT, SELL, INVEST)
+- `current_property_type` - Tipo de imóvel preferido
+- `current_city_interest` - Cidade de interesse
+- `current_budget_min` - Orçamento mínimo
+- `current_budget_max` - Orçamento máximo
+- `current_urgency_level` - Nível de urgência (LOW, MEDIUM, HIGH, IMMEDIATE)
+- `current_lead_score` - Score do lead (0-100)
+- `current_status` - Status no funil de vendas (NEW_LEAD, CONTACTED, QUALIFIED, etc.)
+
+**⚠️ CRÍTICO:** O perfil do cliente reflete **APENAS o ciclo ACTIVE atual**, não histórico consolidado:
+- Quando um novo ciclo ACTIVE começa, o perfil é atualizado baseado **APENAS nesse ciclo**
+- Ciclos anteriores (COMPLETED, LOST, ABANDONED) **NÃO são considerados**
+- Isso garante que o perfil sempre reflita o objetivo e contexto atual do cliente
 
 **Implementação:** `app/clients/state_derivation_service.py`
 
@@ -255,15 +273,14 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
                     │  Cliente Criado │
                     │  (Nome, Tel,    │
                     │   Email, Origem)│
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  IA Classifica │
-                    │  - Lead Score  │
-                    │  - Urgência    │
-                    │  - Interesse   │
-                    │  - Orçamento   │
+                    │                 │
+                    │  Valores Padrão:│
+                    │  - Status:      │
+                    │    NEW_LEAD     │
+                    │  - Lead Score:  │
+                    │    30 (base)    │
+                    │  - Urgência:    │
+                    │    MEDIUM       │
                     └────────┬────────┘
                              │
                              ▼
@@ -298,9 +315,15 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
                              ▼
                     ┌─────────────────┐
                     │  Atualiza Cliente│
+                    │  (Ciclo ACTIVE) │
                     │  - Lead Score   │
                     │  - Perfil       │
+                    │  - Status       │
                     │  - Timeline     │
+                    │                 │
+                    │  ⚠️ Perfil reflete│
+                    │  APENAS ciclo   │
+                    │  ACTIVE atual   │
                     └────────┬────────┘
                              │
                              ▼
@@ -413,6 +436,18 @@ O sistema implementa um conceito de **ciclo de atendimento** onde:
 - Refinamentos (mudança de orçamento, urgência, tipo de imóvel) **NÃO** criam novo ciclo
 - Novo ciclo é criado apenas quando há **mudança estratégica real** (BUY → RENT, mudança de cidade) ou **reativação após longo período**
 
+**⚠️ CRÍTICO - Proteções Implementadas:**
+1. **Nunca pode existir 2 ACTIVE**: Sistema garante apenas um ciclo ACTIVE por cliente (com locks de banco)
+2. **Não atualiza de ciclo fechado**: Perfil do cliente só é atualizado a partir de ciclos ACTIVE
+3. **Toda atualização passa pelo ciclo**: Campos AI-controlados só podem ser atualizados via atendimentos
+4. **Mantém estado se não houver ACTIVE**: Se não houver ciclo ACTIVE, perfil mantém último estado até novo ciclo surgir
+
+**Perfil do Cliente:**
+- O perfil do cliente reflete **APENAS o ciclo ACTIVE atual**
+- Quando um novo ciclo ACTIVE começa, o perfil é atualizado baseado **APENAS nesse ciclo**
+- Ciclos anteriores (COMPLETED, LOST, ABANDONED) **NÃO são considerados** na derivação do perfil
+- Isso garante que o perfil sempre reflita o objetivo e contexto atual do cliente
+
 **Implementação:** `app/attendances/objective_service.py` e `app/attendances/repository.py`
 
 ---
@@ -429,7 +464,6 @@ Projeto-Tecnico-Astrocode-Backend/
 │   │   ├── gemini_service.py     # Integração com Google Gemini
 │   │   ├── journey_service.py    # Análise de jornada do cliente
 │   │   ├── journey_routes.py     # Rotas de jornada
-│   │   ├── lead_classifier.py    # Classificação inicial de leads
 │   │   ├── models.py             # Modelos de dados (AISummary, etc)
 │   │   ├── prompts.py            # Prompts para a IA
 │   │   ├── repository.py         # Repositório de AI Summaries
@@ -726,10 +760,13 @@ A aplicação estará disponível em:
 ### 1. Gestão de Clientes
 
 - **Cadastro completo** com informações de contato
-- **Classificação automática** pela IA ao criar
-- **Lead Score dinâmico** atualizado conforme interações
+- **Valores padrão** ao criar (Status: NEW_LEAD, Lead Score: 30, Urgência: MEDIUM)
+- **Atualização automática** pela IA através de atendimentos no ciclo ACTIVE
+- **Lead Score dinâmico** atualizado gradualmente conforme interações no ciclo
+- **Status controlado pela IA** baseado em intent, sentiment, visits, lead_score
 - **Timeline completa** de eventos do cliente
 - **Perfil derivado** automaticamente pela IA (não editável manualmente)
+- **Perfil reflete apenas ciclo ACTIVE** atual, não histórico consolidado
 - **Rastreamento de origem** do lead (WhatsApp, Site, Telefone)
 
 ### 2. Gestão de Atendimentos
@@ -830,10 +867,15 @@ A aplicação estará disponível em:
 
 #### Client
 - Informações de contato
-- Perfil derivado pela IA (não editável)
-- Lead Score dinâmico
-- Status no funil de vendas
+- Perfil derivado pela IA (não editável manualmente)
+- **Campos AI-controlados:**
+  - `current_interest_type`, `current_property_type`, `current_city_interest`
+  - `current_budget_min`, `current_budget_max`, `current_urgency_level`
+  - `current_lead_score`, `current_status`
+- Lead Score dinâmico (atualizado gradualmente no ciclo ACTIVE)
+- Status no funil de vendas (detectado automaticamente pela IA)
 - Timeline de eventos
+- **Perfil reflete apenas ciclo ACTIVE atual**
 
 #### Attendance
 - Conteúdo da conversa (raw_content)
@@ -949,6 +991,55 @@ pytest tests/test_clients.py
 - **Tratamento de erros** da API
 - **Rate limiting** (implementável)
 - **Cache** de respostas (implementável)
+
+### Proteções Críticas do Sistema
+
+O sistema implementa **4 proteções críticas** para garantir integridade dos dados:
+
+1. **Nunca pode existir 2 ACTIVE**
+   - Sistema garante apenas um ciclo ACTIVE por cliente
+   - Usa locks de banco de dados para prevenir race conditions
+   - Fecha automaticamente múltiplos ACTIVE se detectados
+
+2. **Não atualiza de ciclo fechado**
+   - Perfil do cliente só é atualizado a partir de ciclos ACTIVE
+   - Ciclos fechados (COMPLETED, LOST, ABANDONED) não atualizam o perfil
+   - Verificação explícita antes de cada atualização
+
+3. **Toda atualização passa pelo ciclo**
+   - Campos AI-controlados só podem ser atualizados via atendimentos
+   - Bloqueio explícito de atualizações manuais desses campos
+   - Apenas `ClientStateDerivationService` pode atualizar via `allow_ai_updates=True`
+
+4. **Mantém estado se não houver ACTIVE**
+   - Se não houver ciclo ACTIVE, perfil mantém último estado
+   - Não tenta atualizar quando não há contexto ativo
+   - Novo ciclo ACTIVE atualiza baseado apenas nesse ciclo
+
+### Perfil do Cliente e Ciclo ACTIVE
+
+**Conceito Fundamental:**
+- O perfil do cliente reflete **APENAS o ciclo ACTIVE atual**
+- Não é um histórico consolidado de todos os ciclos
+- Quando um novo ciclo ACTIVE começa, o perfil é atualizado baseado **APENAS nesse ciclo**
+- Ciclos anteriores (COMPLETED, LOST, ABANDONED) **NÃO são considerados**
+
+**Benefícios:**
+- Perfil sempre reflete o objetivo atual do cliente
+- Evita misturar contextos de diferentes objetivos
+- Facilita identificação de mudanças estratégicas
+- Garante consistência entre perfil e ciclo ativo
+
+**Exemplo:**
+```
+Ciclo 1 ACTIVE: Comprar casa em SP, R$ 500k
+  → Perfil: city=SP, budget=500k, interest=BUY
+
+Ciclo 1 FECHADO (COMPLETED)
+Ciclo 2 ACTIVE criado: Alugar apartamento em RJ, R$ 2k/mês
+  → Perfil ATUALIZADO: city=RJ, budget=2k, interest=RENT
+  → Ciclo 1 NÃO é mais considerado!
+```
 
 ---
 
