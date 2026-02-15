@@ -96,10 +96,10 @@ class AISummaryService:
             if detected_property_type and key_points:
                 key_points["property_type"] = detected_property_type.value
 
-            # Generate property recommendations if no property is already assigned
-            # Always try to recommend if we have client preferences, even if no property is linked
+            # Generate property recommendations ONLY if no specific property is already assigned
+            # If client has a specific property interest (property_id), don't recommend others
             recommended_properties: list[uuid.UUID] | None = None
-            if db and (not attendance.property_id or interest_type or city or detected_property_type or budget_range.get("min") or budget_range.get("max")):
+            if db and not attendance.property_id and (interest_type or city or detected_property_type or budget_range.get("min") or budget_range.get("max")):
                 recommended_properties = AISummaryService._recommend_properties(
                     db=db,
                     client_id=attendance.client_id,
