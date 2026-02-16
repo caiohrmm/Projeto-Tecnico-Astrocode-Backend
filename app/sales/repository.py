@@ -86,6 +86,22 @@ class SaleRepository:
             new_status = PropertyStatus.SOLD if sale_data.sale_type == SaleType.SALE else PropertyStatus.RENTED
             self._update_property_status(sale_data.property_id, new_status)
 
+        # ⚠️ IMPORTANT: Close active attendance when sale is registered
+        # This ensures the attendance cycle is properly closed when user confirms the sale
+        from app.attendances.repository import AttendanceRepository
+        from app.attendances.models import AttendanceStatus
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        attendance_repo = AttendanceRepository(self.db)
+        active_attendance = attendance_repo.get_active_attendance_by_client(sale_data.client_id)
+        
+        if active_attendance:
+            # Close the active attendance cycle
+            active_attendance.status = AttendanceStatus.COMPLETED
+            self.db.flush()
+            logger.info(f"Closed active attendance {active_attendance.id} when sale was registered for client {sale_data.client_id}")
+
         # Add timeline event
         self._add_timeline_event(
             client_id=sale_data.client_id,

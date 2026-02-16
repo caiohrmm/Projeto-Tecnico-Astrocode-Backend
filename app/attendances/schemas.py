@@ -140,6 +140,18 @@ class DetectedLossInfo(BaseModel):
     client_feedback: str | None = Field(None, description="Client feedback extracted from content")
 
 
+class DetectedSaleInfo(BaseModel):
+    """Schema for detected sale information from AI analysis."""
+    
+    detected: bool = Field(..., description="Whether a sale intent was detected")
+    sale_type: str | None = Field(None, description="Suggested sale type (SALE or RENT)")
+    sale_value: float | None = Field(None, description="Suggested sale value extracted from content")
+    confidence: float | None = Field(None, description="Confidence score (0-1)")
+    extracted_text: str | None = Field(None, description="Text that indicated sale intent")
+    payment_method: str | None = Field(None, description="Payment method mentioned (CASH, FINANCING, etc.)")
+    notes: str | None = Field(None, description="Additional information extracted from content")
+
+
 class AttendanceResponse(BaseModel):
     """
     Schema for attendance response.
@@ -186,9 +198,9 @@ class AttendanceResponse(BaseModel):
         None,
         description="Loss intent detected by AI from raw_content. Only present when loss intent is detected.",
     )
-    detected_loss: DetectedLossInfo | None = Field(
+    detected_sale: DetectedSaleInfo | None = Field(
         None,
-        description="Loss intent detected by AI from raw_content. Only present when loss intent is detected.",
+        description="Sale intent detected by AI from raw_content. Only present when sale intent is detected.",
     )
 
     @model_validator(mode="before")

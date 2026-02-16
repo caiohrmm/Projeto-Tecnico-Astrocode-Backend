@@ -172,7 +172,36 @@ def create_attendance(
         logger = logging.getLogger(__name__)
         logger.warning(f"Error detecting loss intent: {e}", exc_info=True)
     
-    # Create response with cycle action info, detected visit, and detected loss
+    # Detect sale intent from raw_content using AI
+    # ⚠️ IMPORTANT: This is ONLY a suggestion. Attendance status remains ACTIVE until user confirms.
+    detected_sale = None
+    try:
+        from app.ai.service import AISummaryService
+        from app.attendances.schemas import DetectedSaleInfo
+        
+        # ⚠️ PROTECTION: Only detect if attendance is still ACTIVE (not COMPLETED, LOST, or ABANDONED)
+        # This prevents multiple detections and annoying popups
+        if attendance.status.value == "ACTIVE":
+            sale_info = AISummaryService.detect_sale_intent(
+                raw_content=attendance.raw_content,
+                client_id=attendance.client_id,
+                property_id=attendance.property_id,
+                agent_id=attendance.agent_id,
+                attendance_status=attendance.status.value,  # Pass current status to skip if COMPLETED
+            )
+            
+            if sale_info and sale_info.get("detected"):
+                detected_sale = DetectedSaleInfo(**sale_info)
+                logger.info(f"Sale intent detected (suggestion only): {detected_sale.sale_type} for {detected_sale.sale_value}. Attendance remains ACTIVE until user confirms.")
+        else:
+            logger.debug(f"Skipping sale detection: attendance status is {attendance.status.value} (not ACTIVE)")
+    except Exception as e:
+        # Log error but don't fail the request
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Error detecting sale intent: {e}", exc_info=True)
+    
+    # Create response with cycle action info, detected visit, detected loss, and detected sale
     # Use model_validate and then add cycle action fields using model_copy
     response = AttendanceResponse.model_validate(attendance)
     response = response.model_copy(update={
@@ -180,6 +209,7 @@ def create_attendance(
         'previous_cycle_id': previous_cycle_id,
         'detected_visit': detected_visit,
         'detected_loss': detected_loss,
+        'detected_sale': detected_sale,
     })
     
     return response
@@ -428,12 +458,44 @@ def update_attendance(
             logger = logging.getLogger(__name__)
             logger.warning(f"Error detecting loss intent: {e}", exc_info=True)
     
+    # Detect sale intent if raw_content was updated
+    # ⚠️ IMPORTANT: This is ONLY a suggestion. Attendance status remains ACTIVE until user confirms.
+    detected_sale = None
+    if attendance_data.raw_content is not None:
+        try:
+            from app.ai.service import AISummaryService
+            from app.attendances.schemas import DetectedSaleInfo
+            
+            # ⚠️ PROTECTION: Only detect if attendance is still ACTIVE (not COMPLETED, LOST, or ABANDONED)
+            # This prevents multiple detections and annoying popups
+            if updated_attendance.status.value == "ACTIVE":
+                sale_info = AISummaryService.detect_sale_intent(
+                    raw_content=updated_attendance.raw_content,
+                    client_id=updated_attendance.client_id,
+                    property_id=updated_attendance.property_id,
+                    agent_id=updated_attendance.agent_id,
+                    attendance_status=updated_attendance.status.value,  # Pass current status to skip if COMPLETED
+                )
+                
+                if sale_info and sale_info.get("detected"):
+                    detected_sale = DetectedSaleInfo(**sale_info)
+                    logger.info(f"Sale intent detected (suggestion only): {detected_sale.sale_type} for {detected_sale.sale_value}. Attendance remains ACTIVE until user confirms.")
+            else:
+                logger.debug(f"Skipping sale detection: attendance status is {updated_attendance.status.value} (not ACTIVE)")
+        except Exception as e:
+            # Log error but don't fail the request
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error detecting sale intent: {e}", exc_info=True)
+    
     response = AttendanceResponse.model_validate(updated_attendance)
     update_dict = {}
     if detected_visit:
         update_dict['detected_visit'] = detected_visit
     if detected_loss:
         update_dict['detected_loss'] = detected_loss
+    if detected_sale:
+        update_dict['detected_sale'] = detected_sale
     if update_dict:
         response = response.model_copy(update=update_dict)
     

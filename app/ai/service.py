@@ -1178,6 +1178,272 @@ IMPORTANTE:
             return None
 
     @staticmethod
+    def detect_sale_intent(
+        raw_content: str,
+        client_id: uuid.UUID | None = None,
+        property_id: uuid.UUID | None = None,
+        agent_id: uuid.UUID | None = None,
+        attendance_status: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Detect sale intent from raw content using AI.
+        
+        ⚠️ IMPORTANT: This is ONLY a suggestion. It does NOT change attendance status.
+        The attendance remains ACTIVE until the user explicitly confirms the sale.
+        
+        Analyzes the conversation to identify if a sale/rent was closed,
+        extracts sale type, value, payment method, and other details.
+        
+        Args:
+            raw_content: Raw content of the attendance/conversation
+            client_id: Optional client ID for context
+            property_id: Optional property ID if sale is for a specific property
+            agent_id: Optional agent ID
+            attendance_status: Current attendance status (if COMPLETED, detection is skipped)
+            
+        Returns:
+            Dictionary with sale information if detected, None otherwise:
+            {
+                "detected": True,
+                "sale_type": "SALE",  # SALE or RENT
+                "sale_value": 500000.00,  # Extracted sale value
+                "confidence": 0.85,  # Confidence score (0-1)
+                "extracted_text": "Cliente fechou a compra por R$ 500.000",
+                "payment_method": "FINANCING",  # Payment method mentioned
+                "notes": "Venda fechada durante atendimento"
+            }
+            Or None if no sale intent detected
+        """
+        # ⚠️ PROTECTION 1: Don't detect sale if attendance is already COMPLETED
+        # This prevents multiple detections and annoying popups
+        if attendance_status == "COMPLETED":
+            logger.info("Skipping sale detection: attendance is already COMPLETED")
+            return None
+        
+        try:
+            gemini = AISummaryService._get_gemini_service()
+            
+            # Truncate content if too large
+            processed_content = AISummaryService._truncate_content_intelligently(raw_content, max_chars=50000)
+            
+            # If Gemini is not configured, use regex-based fallback
+            if not gemini.is_configured():
+                logger.warning("Gemini API not configured, using regex-based sale detection")
+                return AISummaryService._detect_sale_intent_regex(processed_content, attendance_status)
+            
+            # Build context
+            context = ""
+            if property_id:
+                context += f"\nPROPRIEDADE: ID {property_id}\n"
+            if client_id:
+                context += f"\nCLIENTE: ID {client_id}\n"
+            
+            prompt = f"""Você é um assistente especializado em detectar quando uma venda ou aluguel foi fechado.
+
+Analise o seguinte conteúdo de conversa e identifique se o cliente fechou uma venda ou aluguel de imóvel.
+
+{context}
+
+CONTEÚDO DA CONVERSA:
+{processed_content}
+
+INSTRUÇÕES:
+1. Identifique se há MENÇÃO EXPLÍCITA de venda/aluguel fechado:
+   - "fechou", "comprou", "alugou", "vendeu", "aceitou a proposta", "fechamos negócio"
+   - "vou comprar", "vou alugar", "aceito", "fechado", "negócio fechado"
+   - Menção de valores e condições de pagamento
+2. Se detectar venda/aluguel, extraia:
+   - TIPO: "SALE" (venda) ou "RENT" (aluguel)
+   - VALOR: valor mencionado (apenas números, sem símbolos)
+   - FORMA DE PAGAMENTO: se mencionado (CASH, FINANCING, INSTALLMENTS, MIXED)
+   - INFORMAÇÕES ADICIONAIS: condições, prazo, etc.
+3. VALIDAÇÕES:
+   - Valor deve ser um número positivo
+   - Tipo deve ser SALE ou RENT
+   - Se apenas parte da informação estiver presente, use valores padrão razoáveis
+4. Se NÃO houver indicação clara de venda/aluguel fechado, retorne null
+
+Responda APENAS com um JSON válido no formato:
+{{
+    "detected": true,
+    "sale_type": "SALE",
+    "sale_value": 500000.00,
+    "confidence": 0.85,
+    "extracted_text": "Cliente fechou a compra por R$ 500.000",
+    "payment_method": "FINANCING",
+    "notes": "Venda fechada durante atendimento"
+}}
+
+OU, se não detectar venda:
+{{
+    "detected": false
+}}
+
+IMPORTANTE:
+- Seja conservador: só detecte venda se houver indicação CLARA de fechamento
+- Extraia valores numéricos corretamente (ex: "R$ 500.000" → 500000.00)
+- Identifique se é venda (SALE) ou aluguel (RENT)"""
+
+            try:
+                result = gemini.chat(
+                    message=prompt,
+                    system_prompt="Você é um assistente especializado em detectar quando vendas ou aluguéis de imóveis foram fechados. Responda APENAS com JSON válido.",
+                )
+                
+                if result.get("error"):
+                    logger.error(f"Error detecting sale intent with Gemini: {result.get('error')}")
+                    return AISummaryService._detect_sale_intent_regex(processed_content, attendance_status)
+                
+                answer = result.get("answer", "").strip()
+                if not answer:
+                    return None
+                
+                # Try to extract JSON from the answer
+                import json
+                import re
+                
+                # Remove markdown code blocks if present
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', answer, re.DOTALL)
+                if json_match:
+                    answer = json_match.group(1)
+                else:
+                    # Try to find JSON object in the answer
+                    json_match = re.search(r'\{.*\}', answer, re.DOTALL)
+                    if json_match:
+                        answer = json_match.group(0)
+                
+                parsed = json.loads(answer)
+                
+                if not parsed.get("detected", False):
+                    return None
+                
+                # Validate sale_type
+                from app.sales.models import SaleType, PaymentMethod
+                
+                sale_type = parsed.get("sale_type", "SALE")
+                if sale_type:
+                    try:
+                        SaleType(sale_type)  # Validate enum value
+                    except ValueError:
+                        logger.warning(f"Invalid sale_type: {sale_type}, using SALE")
+                        sale_type = "SALE"
+                
+                payment_method = parsed.get("payment_method")
+                if payment_method:
+                    try:
+                        PaymentMethod(payment_method)  # Validate enum value
+                    except ValueError:
+                        logger.warning(f"Invalid payment_method: {payment_method}, ignoring")
+                        payment_method = None
+                
+                # Build response
+                sale_info = {
+                    "detected": True,
+                    "sale_type": sale_type,
+                    "sale_value": parsed.get("sale_value"),
+                    "confidence": min(max(parsed.get("confidence", 0.7), 0.0), 1.0),  # Clamp between 0 and 1
+                    "extracted_text": parsed.get("extracted_text", ""),
+                    "payment_method": payment_method,
+                    "notes": parsed.get("notes", "Venda/aluguel detectado durante atendimento"),
+                }
+                
+                logger.info(f"Sale intent detected: {sale_info}")
+                return sale_info
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing JSON from Gemini response: {e}, answer: {answer}")
+                return AISummaryService._detect_sale_intent_regex(processed_content, attendance_status)
+            except Exception as e:
+                logger.error(f"Exception detecting sale intent with Gemini: {e}", exc_info=True)
+                return AISummaryService._detect_sale_intent_regex(processed_content, attendance_status)
+                
+        except Exception as e:
+            logger.error(f"Error in detect_sale_intent: {e}", exc_info=True)
+            return None
+
+    @staticmethod
+    def _detect_sale_intent_regex(raw_content: str, attendance_status: str | None = None) -> dict[str, Any] | None:
+        """
+        Fallback regex-based sale intent detection.
+        
+        ⚠️ IMPORTANT: This is ONLY a suggestion. It does NOT change attendance status.
+        
+        Args:
+            raw_content: Raw content to analyze
+            attendance_status: Current attendance status (if COMPLETED, detection is skipped)
+            
+        Returns:
+            Sale info dict or None
+        """
+        # ⚠️ PROTECTION: Don't detect sale if attendance is already COMPLETED
+        if attendance_status == "COMPLETED":
+            return None
+        
+        import re
+        
+        content_lower = raw_content.lower()
+        
+        # Keywords that indicate sale intent
+        sale_keywords = [
+            r"fechou",
+            r"comprou",
+            r"alugou",
+            r"vendeu",
+            r"aceitou.*proposta",
+            r"fechamos.*negócio",
+            r"negócio.*fechado",
+            r"vou.*comprar",
+            r"vou.*alugar",
+        ]
+        
+        has_sale_intent = any(re.search(keyword, content_lower) for keyword in sale_keywords)
+        
+        if not has_sale_intent:
+            return None
+        
+        # Try to extract sale type
+        sale_type = "SALE"
+        if re.search(r"alug", content_lower):
+            sale_type = "RENT"
+        
+        # Try to extract value
+        value_patterns = [
+            r"r\$\s*(\d+(?:\.\d{3})*(?:,\d{2})?)",  # R$ 500.000,00
+            r"(\d+(?:\.\d{3})*(?:,\d{2})?)\s*reais",  # 500.000,00 reais
+            r"por\s*(\d+(?:\.\d{3})*)",  # por 500000
+        ]
+        
+        sale_value = None
+        for pattern in value_patterns:
+            match = re.search(pattern, content_lower)
+            if match:
+                try:
+                    value_str = match.group(1).replace('.', '').replace(',', '.')
+                    sale_value = float(value_str)
+                    break
+                except (ValueError, AttributeError):
+                    continue
+        
+        # Try to detect payment method
+        payment_method = None
+        if re.search(r"(à vista|vista|cash)", content_lower):
+            payment_method = "CASH"
+        elif re.search(r"(financiamento|financiar)", content_lower):
+            payment_method = "FINANCING"
+        elif re.search(r"(parcelado|parcelas)", content_lower):
+            payment_method = "INSTALLMENTS"
+        
+        return {
+            "detected": True,
+            "sale_type": sale_type,
+            "sale_value": sale_value,
+            "confidence": 0.6,  # Lower confidence for regex-based
+            "extracted_text": raw_content[:200],  # First 200 chars
+            "payment_method": payment_method,
+            "notes": "Venda/aluguel detectado durante atendimento (detecção automática)",
+        }
+
+    @staticmethod
     def _detect_loss_intent_regex(raw_content: str, attendance_status: str | None = None) -> dict[str, Any] | None:
         """
         Fallback regex-based loss intent detection.
