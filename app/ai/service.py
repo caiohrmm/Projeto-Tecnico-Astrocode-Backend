@@ -633,33 +633,96 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
     
     @staticmethod
     def _extract_city(raw_content: str) -> str | None:
-        """Extract city name from raw content."""
+        """Extract city name from raw content using AI when available, fallback to regex."""
         import re
         
+        # Try using AI first if available (more accurate)
+        gemini = AISummaryService._get_gemini_service()
+        if gemini.is_configured():
+            try:
+                prompt = f"""Analise o seguinte texto de atendimento imobiliário e extraia APENAS o nome da cidade mencionada.
+
+IMPORTANTE:
+- Extraia APENAS o nome da cidade (ex: "Ourinhos", "São Paulo", "Rio de Janeiro")
+- NÃO extraia frases como "concretizar a compra", "visualizada através", etc.
+- Se mencionar "casa em Ourinhos", extraia "Ourinhos"
+- Se mencionar "cidade de X", extraia "X"
+- Se não houver cidade mencionada, retorne null
+- Retorne APENAS o nome da cidade ou "null" se não houver
+
+TEXTO:
+{raw_content[:2000]}
+
+Responda APENAS com o nome da cidade ou "null":"""
+                
+                result = gemini.chat(
+                    message=prompt,
+                    system_prompt="Você é um especialista em extrair nomes de cidades de textos. Retorne APENAS o nome da cidade ou 'null'.",
+                )
+                
+                answer = result.get("answer", "").strip()
+                
+                # Clean up the answer
+                answer = answer.replace('"', '').replace("'", "").strip()
+                
+                # Check if it's null or empty
+                if answer.lower() in ['null', 'none', 'não', 'nao', ''] or len(answer) < 3:
+                    # Fall through to regex
+                    pass
+                else:
+                    # Validate it's not a verb phrase
+                    action_verbs = {'concretizar', 'visualizar', 'indicar', 'demonstrar', 'solicitar', 
+                                   'agendar', 'reforçar', 'possuir', 'desejar', 'querer', 'precisar',
+                                   'concretização', 'visualização', 'demonstração', 'solicitação'}
+                    words = answer.split()
+                    if words and words[0].lower() not in action_verbs:
+                        # Additional check: should not be a long phrase
+                        if len(words) <= 3 and len(answer) <= 50:
+                            return answer.title() if answer.islower() else answer
+            except Exception as e:
+                logger.warning(f"Error extracting city with AI, using regex fallback: {e}")
+                # Fall through to regex
+        
+        # Fallback to regex-based extraction
         content_lower = raw_content.lower()
         
-        # Common skip words that are not cities
+        # Common skip words that are not cities (expanded list)
         skip_words = {
-            "casa", "apartamento", "imóvel", "terreno", "comprar", "alugar", "vender",
+            "casa", "apartamento", "imóvel", "terreno", "comprar", "compra", "alugar", "vender",
             "buscar", "procurar", "quer", "uma", "um", "breve", "geral", "qualquer",
             "lugar", "algum", "alguma", "deseja", "desejo", "preciso", "precisa",
-            "orçamento", "orçamento", "valor", "preço", "mil", "milhão", "reais"
+            "orçamento", "orçamento", "valor", "preço", "mil", "milhão", "reais",
+            "concretizar", "concretização", "concretiza", "concretizado", "concretizando",
+            "visualizada", "visualizado", "visualizar", "visualização", "visualizando",
+            "através", "indicando", "indicado", "indicou", "indica",
+            "demonstrou", "demonstrar", "demonstração", "demonstrado",
+            "grande", "interesse", "possui", "possuiu", "possuir",
+            "solicitação", "solicitar", "solicitado", "solicitou",
+            "agendar", "agendamento", "agendado", "agendou",
+            "visita", "visitar", "visitado", "visitou",
+            "reforça", "reforçar", "reforçado", "reforçou",
+            "apenas", "após", "atual", "data", "dias", "dia",
+            "horas", "hora", "às", "as", "no", "na", "em", "para",
+            "visualizado", "visualizada", "visualizar", "visualização",
+            "instagram", "facebook", "site", "internet", "web"
         }
         
         # Try uppercase patterns first (more reliable for city names)
+        # Priority order: most specific patterns first
         uppercase_patterns = [
-            # "na cidade de Manduri" - specific pattern for this common case (highest priority)
+            # "casa em Ourinhos", "apartamento em Ourinhos" - HIGHEST PRIORITY (most specific)
+            r"(?:casa|apartamento|terreno|imóvel)\s+(?:em|de|na|no)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
+            # "na cidade de Ourinhos" - HIGH PRIORITY
             r"na\s+cidade\s+(?:de|do|da)?\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
-            # "cidade de Manduri" - improved to capture city after "cidade de"
+            # "cidade de Ourinhos" - HIGH PRIORITY
             r"cidade\s+(?:de|do|da)?\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
-            # "em Manduri", "em São Paulo", etc.
-            r"(?:em|na|no|para)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
-            # "morar em Manduri"
+            # "morar em Ourinhos" - MEDIUM PRIORITY
             r"morar\s+em\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
-            # "imóvel em Manduri"
+            # "imóvel em Ourinhos" - MEDIUM PRIORITY
             r"imóvel\s+em\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
-            # "casa em Manduri"
-            r"(?:casa|apartamento|terreno)\s+em\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)*)",
+            # "em Ourinhos", "em São Paulo" - LOW PRIORITY (less specific, more prone to errors)
+            # Only match if it's at word boundary and not after a verb
+            r"(?:^|\.|,|;|:|\s)(?:em|na|no|para)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[A-ZÀ-Ú][a-zà-ú]+)*)",
         ]
         
         for pattern in uppercase_patterns:
@@ -674,15 +737,25 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
                         if len(words) <= 4:
                             # Check if any word is in skip list
                             if not any(word.lower() in skip_words for word in words):
-                                return city
+                                # Additional validation: city should not be a verb phrase
+                                # Skip if it looks like "Concretizar A Compra" (verb + article + noun)
+                                if not re.match(r'^[A-ZÀ-Ú][a-zà-ú]+\s+(?:a|o|as|os|de|do|da|dos|das)\s+[A-ZÀ-Ú][a-zà-ú]+$', city):
+                                    # Skip if it contains common action verbs
+                                    action_verbs = {'concretizar', 'visualizar', 'indicar', 'demonstrar', 'solicitar', 
+                                                   'agendar', 'reforçar', 'possuir', 'desejar', 'querer', 'precisar'}
+                                    first_word_lower = words[0].lower()
+                                    if first_word_lower not in action_verbs:
+                                        return city
         
         # Also check for cities mentioned with lowercase after prepositions
-        # This catches cases like "em manduri" (lowercase)
+        # This catches cases like "em ourinhos" (lowercase)
         lowercase_patterns = [
-            # "na cidade de manduri" - specific pattern for lowercase (highest priority)
+            # "na cidade de ourinhos" - specific pattern for lowercase (highest priority)
             r"na\s+cidade\s+(?:de|do|da)?\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
+            # "casa em ourinhos", "apartamento em ourinhos" - specific pattern for property + city
+            r"(?:casa|apartamento|terreno|imóvel)\s+(?:em|de|na|no)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
             r"cidade\s+(?:de|do|da)?\s+([a-zà-ú]+(?:\s+[a-zà-ú]+)*)",
-            r"(?:em|na|no|para)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
+            r"(?:^|\.|,|;|:|\s)(?:em|na|no|para)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
         ]
         
         for pattern in lowercase_patterns:
@@ -698,8 +771,13 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
                         # Check if any word is in skip list
                         words = city.split()
                         if not any(word.lower() in skip_words for word in words):
-                            # Capitalize properly
-                            return city.title()
+                            # Additional validation: skip verb phrases
+                            action_verbs = {'concretizar', 'visualizar', 'indicar', 'demonstrar', 'solicitar', 
+                                           'agendar', 'reforçar', 'possuir', 'desejar', 'querer', 'precisar'}
+                            first_word_lower = words[0].lower()
+                            if first_word_lower not in action_verbs:
+                                # Capitalize properly
+                                return city.title()
         
         return None
     
