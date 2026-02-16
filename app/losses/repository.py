@@ -1,5 +1,6 @@
 """Repository for Loss database operations and AI analysis."""
 
+import logging
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta
@@ -13,6 +14,8 @@ from app.clients.repository import ClientRepository
 from app.clients.timeline_models import ClientTimeline, TimelineEventType
 from app.losses.models import ClientLoss, LossReason, LossStage
 from app.losses.schemas import LossCreate, LossPatternAnalysis, LossStats, LossUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class LossRepository:
@@ -50,6 +53,20 @@ class LossRepository:
 
         # Update client status to LOST
         self._update_client_status(loss_data.client_id, ClientStatus.LOST)
+
+        # ⚠️ IMPORTANT: Close active attendance when loss is registered
+        # This ensures the attendance cycle is properly closed when user confirms the loss
+        from app.attendances.repository import AttendanceRepository
+        from app.attendances.models import AttendanceStatus
+        
+        attendance_repo = AttendanceRepository(self.db)
+        active_attendance = attendance_repo.get_active_attendance_by_client(loss_data.client_id)
+        
+        if active_attendance:
+            # Close the active attendance cycle
+            active_attendance.status = AttendanceStatus.LOST
+            self.db.flush()
+            logger.info(f"Closed active attendance {active_attendance.id} when loss was registered for client {loss_data.client_id}")
 
         # Add timeline event
         self._add_timeline_event(

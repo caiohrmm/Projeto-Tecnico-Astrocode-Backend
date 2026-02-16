@@ -976,6 +976,267 @@ IMPORTANTE:
             return None
 
     @staticmethod
+    def detect_loss_intent(
+        raw_content: str,
+        client_id: uuid.UUID | None = None,
+        property_id: uuid.UUID | None = None,
+        agent_id: uuid.UUID | None = None,
+        attendance_status: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Detect loss intent from raw content using AI.
+        
+        ⚠️ IMPORTANT: This is ONLY a suggestion. It does NOT change attendance status.
+        The attendance remains ACTIVE until the user explicitly confirms the loss.
+        
+        Analyzes the conversation to identify if the client has given up or lost interest,
+        extracts loss reason, stage, and detailed information.
+        
+        Args:
+            raw_content: Raw content of the attendance/conversation
+            client_id: Optional client ID for context
+            property_id: Optional property ID if loss is for a specific property
+            agent_id: Optional agent ID
+            attendance_status: Current attendance status (if LOST, detection is skipped)
+            
+        Returns:
+            Dictionary with loss information if detected, None otherwise:
+            {
+                "detected": True,
+                "loss_reason": "CLIENT_FINANCING_DENIED",  # LossReason enum value
+                "loss_stage": "NEGOTIATION",  # LossStage enum value
+                "confidence": 0.85,  # Confidence score (0-1)
+                "extracted_text": "Cliente não conseguiu o consórcio e não quer mais o imóvel",
+                "detailed_reason": "Cliente não conseguiu aprovação do consórcio",
+                "client_feedback": "Não conseguiu o consórcio e infelizmente não quer mais o imóvel"
+            }
+            Or None if no loss intent detected
+        """
+        # ⚠️ PROTECTION 1: Don't detect loss if attendance is already LOST
+        # This prevents multiple detections and annoying popups
+        if attendance_status == "LOST":
+            logger.info("Skipping loss detection: attendance is already LOST")
+            return None
+        
+        try:
+            gemini = AISummaryService._get_gemini_service()
+            
+            # Truncate content if too large
+            processed_content = AISummaryService._truncate_content_intelligently(raw_content, max_chars=50000)
+            
+            # If Gemini is not configured, use regex-based fallback
+            if not gemini.is_configured():
+                logger.warning("Gemini API not configured, using regex-based loss detection")
+                return AISummaryService._detect_loss_intent_regex(processed_content)
+            
+            # Build context
+            context = ""
+            if property_id:
+                context += f"\nPROPRIEDADE: ID {property_id}\n"
+            if client_id:
+                context += f"\nCLIENTE: ID {client_id}\n"
+            
+            prompt = f"""Você é um assistente especializado em detectar quando um cliente desistiu ou perdeu interesse em um imóvel.
+
+Analise o seguinte conteúdo de conversa e identifique se o cliente expressou desistência, perda de interesse, ou motivo para não continuar com a negociação.
+
+{context}
+
+CONTEÚDO DA CONVERSA:
+{processed_content}
+
+INSTRUÇÕES:
+1. Identifique se há MENÇÃO EXPLÍCITA de desistência, perda de interesse, ou motivo para não continuar:
+   - "não quer mais", "desistiu", "não conseguiu", "não vai mais", "cancelou"
+   - Problemas com financiamento/consórcio
+   - Mudança de ideia
+   - Problemas com o imóvel
+   - Preço muito alto
+   - Orçamento insuficiente
+   - Escolheu outro imóvel/concorrência
+2. Se detectar perda, identifique:
+   - MOTIVO PRINCIPAL (use um dos valores do enum LossReason):
+     * CLIENT_FINANCING_DENIED: Financiamento/consórcio negado ou não aprovado
+     * CLIENT_CHANGED_MIND: Cliente mudou de ideia
+     * PRICE_TOO_HIGH: Preço muito alto
+     * BUDGET_INSUFFICIENT: Orçamento insuficiente
+     * BETTER_OFFER_COMPETITOR: Escolheu outro imóvel/concorrência
+     * PROPERTY_NOT_SUITABLE: Imóvel não adequado
+     * LOCATION_NOT_IDEAL: Localização não ideal
+     * CLIENT_NOT_READY: Cliente não está pronto
+     * ECONOMIC_FACTORS: Fatores econômicos
+     * PERSONAL_REASONS: Motivos pessoais
+     * OTHER: Outro motivo
+   - ESTÁGIO (use um dos valores do enum LossStage):
+     * INITIAL_CONTACT: Contato inicial
+     * QUALIFICATION: Qualificação
+     * VISIT_SCHEDULED: Visita agendada
+     * VISIT_COMPLETED: Visita realizada
+     * PROPOSAL: Proposta
+     * NEGOTIATION: Negociação
+     * CONTRACT: Contrato
+   - EXPLICAÇÃO DETALHADA: Extraia o motivo detalhado mencionado
+   - FEEDBACK DO CLIENTE: Extraia o feedback direto do cliente
+3. Se NÃO houver indicação clara de perda, retorne null
+
+Responda APENAS com um JSON válido no formato:
+{{
+    "detected": true,
+    "loss_reason": "CLIENT_FINANCING_DENIED",
+    "loss_stage": "NEGOTIATION",
+    "confidence": 0.85,
+    "extracted_text": "Cliente não conseguiu o consórcio e não quer mais o imóvel",
+    "detailed_reason": "Cliente não conseguiu aprovação do consórcio",
+    "client_feedback": "Não conseguiu o consórcio e infelizmente não quer mais o imóvel"
+}}
+
+OU, se não detectar perda:
+{{
+    "detected": false
+}}
+
+IMPORTANTE:
+- Seja conservador: só detecte perda se houver indicação CLARA de desistência
+- Use os valores exatos dos enums LossReason e LossStage
+- Extraia o máximo de informação possível do texto"""
+
+            try:
+                result = gemini.chat(
+                    message=prompt,
+                    system_prompt="Você é um assistente especializado em detectar quando clientes desistem de negociações imobiliárias. Responda APENAS com JSON válido.",
+                )
+                
+                if result.get("error"):
+                    logger.error(f"Error detecting loss intent with Gemini: {result.get('error')}")
+                    return AISummaryService._detect_loss_intent_regex(processed_content, attendance_status)
+                
+                answer = result.get("answer", "").strip()
+                if not answer:
+                    return None
+                
+                # Try to extract JSON from the answer
+                import json
+                import re
+                
+                # Remove markdown code blocks if present
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', answer, re.DOTALL)
+                if json_match:
+                    answer = json_match.group(1)
+                else:
+                    # Try to find JSON object in the answer
+                    json_match = re.search(r'\{.*\}', answer, re.DOTALL)
+                    if json_match:
+                        answer = json_match.group(0)
+                
+                parsed = json.loads(answer)
+                
+                if not parsed.get("detected", False):
+                    return None
+                
+                # Validate loss_reason and loss_stage
+                from app.losses.models import LossReason, LossStage
+                
+                loss_reason = parsed.get("loss_reason")
+                if loss_reason:
+                    try:
+                        LossReason(loss_reason)  # Validate enum value
+                    except ValueError:
+                        logger.warning(f"Invalid loss_reason: {loss_reason}, using OTHER")
+                        loss_reason = "OTHER"
+                
+                loss_stage = parsed.get("loss_stage")
+                if loss_stage:
+                    try:
+                        LossStage(loss_stage)  # Validate enum value
+                    except ValueError:
+                        logger.warning(f"Invalid loss_stage: {loss_stage}, using QUALIFICATION")
+                        loss_stage = "QUALIFICATION"
+                
+                # Build response
+                loss_info = {
+                    "detected": True,
+                    "loss_reason": loss_reason,
+                    "loss_stage": loss_stage,
+                    "confidence": min(max(parsed.get("confidence", 0.7), 0.0), 1.0),  # Clamp between 0 and 1
+                    "extracted_text": parsed.get("extracted_text", ""),
+                    "detailed_reason": parsed.get("detailed_reason"),
+                    "client_feedback": parsed.get("client_feedback"),
+                }
+                
+                logger.info(f"Loss intent detected: {loss_info}")
+                return loss_info
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing JSON from Gemini response: {e}, answer: {answer}")
+                return AISummaryService._detect_loss_intent_regex(processed_content, attendance_status)
+            except Exception as e:
+                logger.error(f"Exception detecting loss intent with Gemini: {e}", exc_info=True)
+                return AISummaryService._detect_loss_intent_regex(processed_content, attendance_status)
+                
+        except Exception as e:
+            logger.error(f"Error in detect_loss_intent: {e}", exc_info=True)
+            return None
+
+    @staticmethod
+    def _detect_loss_intent_regex(raw_content: str, attendance_status: str | None = None) -> dict[str, Any] | None:
+        """
+        Fallback regex-based loss intent detection.
+        
+        ⚠️ IMPORTANT: This is ONLY a suggestion. It does NOT change attendance status.
+        
+        Args:
+            raw_content: Raw content to analyze
+            attendance_status: Current attendance status (if LOST, detection is skipped)
+            
+        Returns:
+            Loss info dict or None
+        """
+        # ⚠️ PROTECTION: Don't detect loss if attendance is already LOST
+        if attendance_status == "LOST":
+            return None
+        import re
+        
+        content_lower = raw_content.lower()
+        
+        # Keywords that indicate loss intent
+        loss_keywords = [
+            r"não\s+quer\s+mais",
+            r"desistiu",
+            r"não\s+conseguiu",
+            r"não\s+vai\s+mais",
+            r"cancelou",
+            r"não\s+quer\s+continuar",
+            r"perdeu\s+interesse",
+            r"não\s+está\s+mais\s+interessado",
+        ]
+        
+        has_loss_intent = any(re.search(keyword, content_lower) for keyword in loss_keywords)
+        
+        if not has_loss_intent:
+            return None
+        
+        # Try to detect reason
+        loss_reason = "OTHER"
+        if re.search(r"(consórcio|financiamento|crédito|empréstimo)", content_lower):
+            loss_reason = "CLIENT_FINANCING_DENIED"
+        elif re.search(r"(preço|valor).*alto", content_lower):
+            loss_reason = "PRICE_TOO_HIGH"
+        elif re.search(r"(orçamento|dinheiro|recursos).*insuficiente", content_lower):
+            loss_reason = "BUDGET_INSUFFICIENT"
+        elif re.search(r"mudou\s+de\s+ideia", content_lower):
+            loss_reason = "CLIENT_CHANGED_MIND"
+        
+        return {
+            "detected": True,
+            "loss_reason": loss_reason,
+            "loss_stage": "NEGOTIATION",  # Default stage
+            "confidence": 0.6,  # Lower confidence for regex-based
+            "extracted_text": raw_content[:200],  # First 200 chars
+            "detailed_reason": None,
+            "client_feedback": None,
+        }
+
+    @staticmethod
     def _detect_visit_intent_regex(raw_content: str, property_id: uuid.UUID | None = None) -> dict[str, Any] | None:
         """
         Fallback regex-based visit intent detection.

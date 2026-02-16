@@ -143,13 +143,43 @@ def create_attendance(
         logger = logging.getLogger(__name__)
         logger.warning(f"Error detecting visit intent: {e}", exc_info=True)
     
-    # Create response with cycle action info and detected visit
+    # Detect loss intent from raw_content using AI
+    # ⚠️ IMPORTANT: This is ONLY a suggestion. Attendance status remains ACTIVE until user confirms.
+    detected_loss = None
+    try:
+        from app.ai.service import AISummaryService
+        from app.attendances.schemas import DetectedLossInfo
+        
+        # ⚠️ PROTECTION: Only detect if attendance is still ACTIVE (not LOST, COMPLETED, or ABANDONED)
+        # This prevents multiple detections and annoying popups
+        if attendance.status.value == "ACTIVE":
+            loss_info = AISummaryService.detect_loss_intent(
+                raw_content=attendance.raw_content,
+                client_id=attendance.client_id,
+                property_id=attendance.property_id,
+                agent_id=attendance.agent_id,
+                attendance_status=attendance.status.value,  # Pass current status to skip if LOST
+            )
+            
+            if loss_info and loss_info.get("detected"):
+                detected_loss = DetectedLossInfo(**loss_info)
+                logger.info(f"Loss intent detected (suggestion only): {detected_loss.loss_reason} at stage {detected_loss.loss_stage}. Attendance remains ACTIVE until user confirms.")
+        else:
+            logger.debug(f"Skipping loss detection: attendance status is {attendance.status.value} (not ACTIVE)")
+    except Exception as e:
+        # Log error but don't fail the request
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Error detecting loss intent: {e}", exc_info=True)
+    
+    # Create response with cycle action info, detected visit, and detected loss
     # Use model_validate and then add cycle action fields using model_copy
     response = AttendanceResponse.model_validate(attendance)
     response = response.model_copy(update={
         'cycle_action': cycle_action,
         'previous_cycle_id': previous_cycle_id,
         'detected_visit': detected_visit,
+        'detected_loss': detected_loss,
     })
     
     return response
@@ -368,9 +398,44 @@ def update_attendance(
             logger = logging.getLogger(__name__)
             logger.warning(f"Error detecting visit intent: {e}", exc_info=True)
     
+    # Detect loss intent if raw_content was updated
+    # ⚠️ IMPORTANT: This is ONLY a suggestion. Attendance status remains ACTIVE until user confirms.
+    detected_loss = None
+    if attendance_data.raw_content is not None:
+        try:
+            from app.ai.service import AISummaryService
+            from app.attendances.schemas import DetectedLossInfo
+            
+            # ⚠️ PROTECTION: Only detect if attendance is still ACTIVE (not LOST, COMPLETED, or ABANDONED)
+            # This prevents multiple detections and annoying popups
+            if updated_attendance.status.value == "ACTIVE":
+                loss_info = AISummaryService.detect_loss_intent(
+                    raw_content=updated_attendance.raw_content,
+                    client_id=updated_attendance.client_id,
+                    property_id=updated_attendance.property_id,
+                    agent_id=updated_attendance.agent_id,
+                    attendance_status=updated_attendance.status.value,  # Pass current status to skip if LOST
+                )
+                
+                if loss_info and loss_info.get("detected"):
+                    detected_loss = DetectedLossInfo(**loss_info)
+                    logger.info(f"Loss intent detected (suggestion only): {detected_loss.loss_reason} at stage {detected_loss.loss_stage}. Attendance remains ACTIVE until user confirms.")
+            else:
+                logger.debug(f"Skipping loss detection: attendance status is {updated_attendance.status.value} (not ACTIVE)")
+        except Exception as e:
+            # Log error but don't fail the request
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error detecting loss intent: {e}", exc_info=True)
+    
     response = AttendanceResponse.model_validate(updated_attendance)
+    update_dict = {}
     if detected_visit:
-        response = response.model_copy(update={'detected_visit': detected_visit})
+        update_dict['detected_visit'] = detected_visit
+    if detected_loss:
+        update_dict['detected_loss'] = detected_loss
+    if update_dict:
+        response = response.model_copy(update=update_dict)
     
     return response
 

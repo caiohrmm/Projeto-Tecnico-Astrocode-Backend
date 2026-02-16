@@ -128,6 +128,18 @@ class DetectedVisitInfo(BaseModel):
     notes: str | None = Field(None, description="Notes about the detected visit")
 
 
+class DetectedLossInfo(BaseModel):
+    """Schema for detected loss information from AI analysis."""
+    
+    detected: bool = Field(..., description="Whether a loss intent was detected")
+    loss_reason: str | None = Field(None, description="Suggested loss reason (LossReason enum value)")
+    loss_stage: str | None = Field(None, description="Suggested loss stage (LossStage enum value)")
+    confidence: float | None = Field(None, description="Confidence score (0-1)")
+    extracted_text: str | None = Field(None, description="Text that indicated loss intent")
+    detailed_reason: str | None = Field(None, description="Detailed explanation extracted from content")
+    client_feedback: str | None = Field(None, description="Client feedback extracted from content")
+
+
 class AttendanceResponse(BaseModel):
     """
     Schema for attendance response.
@@ -169,6 +181,14 @@ class AttendanceResponse(BaseModel):
     detected_visit: DetectedVisitInfo | None = Field(
         None,
         description="Visit intent detected by AI from raw_content. Only present when visit intent is detected.",
+    )
+    detected_loss: DetectedLossInfo | None = Field(
+        None,
+        description="Loss intent detected by AI from raw_content. Only present when loss intent is detected.",
+    )
+    detected_loss: DetectedLossInfo | None = Field(
+        None,
+        description="Loss intent detected by AI from raw_content. Only present when loss intent is detected.",
     )
 
     @model_validator(mode="before")
