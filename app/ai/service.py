@@ -830,9 +830,10 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
                 return AISummaryService._detect_visit_intent_regex(processed_content, property_id)
             
             # Use Gemini to detect visit intent
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
             
-            current_date = datetime.now()
+            # Use UTC for timezone-aware datetime
+            current_date = datetime.now(timezone.utc)
             current_date_str = current_date.strftime("%d/%m/%Y")
             current_year = current_date.year
             
@@ -932,14 +933,29 @@ IMPORTANTE:
                 
                 try:
                     # Parse ISO format datetime
-                    scheduled_at = datetime.fromisoformat(scheduled_at_str.replace('Z', '+00:00'))
+                    # Handle both timezone-aware and timezone-naive formats
+                    if scheduled_at_str.endswith('Z'):
+                        scheduled_at = datetime.fromisoformat(scheduled_at_str.replace('Z', '+00:00'))
+                    elif '+' in scheduled_at_str or scheduled_at_str.count('-') > 2:
+                        # Already has timezone info
+                        scheduled_at = datetime.fromisoformat(scheduled_at_str)
+                    else:
+                        # No timezone, assume UTC
+                        scheduled_at = datetime.fromisoformat(scheduled_at_str + '+00:00')
+                    
+                    # Ensure scheduled_at is timezone-aware (UTC)
+                    if scheduled_at.tzinfo is None:
+                        scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+                    else:
+                        # Convert to UTC if it has a different timezone
+                        scheduled_at = scheduled_at.astimezone(timezone.utc)
                     
                     # Validate: date cannot be in the past
                     if scheduled_at < current_date:
                         logger.warning(f"Detected visit date is in the past: {scheduled_at_str}, ignoring")
                         return None
                     
-                    # Validate: hour should be between 08:00 and 20:00
+                    # Validate: hour should be between 08:00 and 20:00 (in UTC, but we'll use the hour as-is)
                     hour = scheduled_at.hour
                     if hour < 8 or hour >= 20:
                         logger.warning(f"Detected visit hour is outside business hours: {hour}, adjusting to 14:00")
@@ -1555,7 +1571,9 @@ IMPORTANTE:
         ]
         
         scheduled_at = None
-        current_date = datetime.now()
+        # Use UTC for timezone-aware datetime
+        from datetime import timezone
+        current_date = datetime.now(timezone.utc)
         
         # Try to extract date
         for pattern in date_patterns:
@@ -1568,7 +1586,7 @@ IMPORTANTE:
                         year = int(match.group(3)) if match.group(3) else current_date.year
                         if year < current_date.year or (year == current_date.year and (month < current_date.month or (month == current_date.month and day < current_date.day))):
                             year = current_date.year + 1 if month < current_date.month or (month == current_date.month and day < current_date.day) else current_date.year
-                        scheduled_at = datetime(year, month, day, 14, 0)  # Default to 14:00
+                        scheduled_at = datetime(year, month, day, 14, 0, tzinfo=timezone.utc)  # Default to 14:00 UTC
                         break
                     elif pattern == r"dia\s+(\d{1,2})":
                         day = int(match.group(1))
@@ -1579,7 +1597,7 @@ IMPORTANTE:
                             if month > 12:
                                 month = 1
                                 year += 1
-                        scheduled_at = datetime(year, month, day, 14, 0)
+                        scheduled_at = datetime(year, month, day, 14, 0, tzinfo=timezone.utc)
                         break
                 except (ValueError, IndexError):
                     continue
@@ -1597,6 +1615,10 @@ IMPORTANTE:
                 # Default to tomorrow if visit intent detected but no date
                 scheduled_at = current_date + timedelta(days=1)
                 scheduled_at = scheduled_at.replace(hour=14, minute=0)
+        
+        # Ensure scheduled_at is timezone-aware (UTC)
+        if scheduled_at and scheduled_at.tzinfo is None:
+            scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
         
         # Try to extract time
         for pattern in time_patterns:
@@ -1616,17 +1638,23 @@ IMPORTANTE:
                 except (ValueError, IndexError):
                     continue
         
-        if scheduled_at and scheduled_at >= current_date:
-            return {
-                "detected": True,
-                "scheduled_at": scheduled_at.isoformat(),
-                "date": scheduled_at.strftime("%d/%m/%Y"),
-                "time": scheduled_at.strftime("%H:%M"),
-                "confidence": 0.6,  # Lower confidence for regex-based detection
-                "extracted_text": f"Visita detectada para {scheduled_at.strftime('%d/%m/%Y às %H:%M')}",
-                "property_id": str(property_id) if property_id else None,
-                "notes": "Visita agendada durante atendimento (detecção automática)",
-            }
+        # Ensure scheduled_at is timezone-aware (UTC) before validation
+        if scheduled_at:
+            if scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+            
+            # Validate: date cannot be in the past
+            if scheduled_at >= current_date:
+                return {
+                    "detected": True,
+                    "scheduled_at": scheduled_at.isoformat(),
+                    "date": scheduled_at.strftime("%d/%m/%Y"),
+                    "time": scheduled_at.strftime("%H:%M"),
+                    "confidence": 0.6,  # Lower confidence for regex-based detection
+                    "extracted_text": f"Visita detectada para {scheduled_at.strftime('%d/%m/%Y às %H:%M')}",
+                    "property_id": str(property_id) if property_id else None,
+                    "notes": "Visita agendada durante atendimento (detecção automática)",
+                }
         
         return None
 
