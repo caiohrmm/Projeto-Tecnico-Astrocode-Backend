@@ -680,45 +680,86 @@ class AttendanceRepository:
             if ai_summary.status.value == "COMPLETED":
                 attendance.ai_summary = ai_summary.summary_text
                 
-                # Generate next steps from AI analysis
+                # Generate next steps based on attendance status and sale status
                 next_steps = []
-                if ai_summary.detected_intent:
-                    intent_labels = {
-                        "PROPERTY_SEARCH": "Buscar propriedades similares",
-                        "SCHEDULE_VISIT": "Agendar visita",
-                        "PRICE_NEGOTIATION": "Negociar preço",
-                        "INFORMATION_REQUEST": "Enviar informações solicitadas",
-                    }
-                    intent_label = intent_labels.get(ai_summary.detected_intent.value, "Acompanhar cliente")
-                    next_steps.append(intent_label)
-
-                if ai_summary.interest_type_detected:
-                    interest_type_labels = {
-                        "BUY": "Comprar imóvel",
-                        "RENT": "Alugar imóvel",
-                        "SELL": "Vender imóvel",
-                        "INVEST": "Investir em imóvel",
-                    }
-                    interest_type_value = ai_summary.interest_type_detected.value if hasattr(ai_summary.interest_type_detected, 'value') else str(ai_summary.interest_type_detected)
-                    interest_label = interest_type_labels.get(interest_type_value, interest_type_value)
-                    next_steps.append(f"Cliente interessado em: {interest_label}")
                 
-                if ai_summary.urgency_level_detected:
-                    urgency_labels = {
-                        "IMMEDIATE": "URGENTE - Contatar imediatamente",
-                        "HIGH": "Alta prioridade - Contatar em até 24h",
-                        "MEDIUM": "Média prioridade - Contatar em até 3 dias",
-                        "LOW": "Baixa prioridade - Contatar em até 7 dias",
-                    }
-                    urgency_value = ai_summary.urgency_level_detected.value if hasattr(ai_summary.urgency_level_detected, 'value') else str(ai_summary.urgency_level_detected)
-                    urgency_label = urgency_labels.get(urgency_value, urgency_value)
-                    next_steps.append(urgency_label)
+                # Check if attendance was completed with a sale
+                from app.sales.repository import SaleRepository
+                sale_repo = SaleRepository(self.db)
+                recent_sales = sale_repo.get_all(
+                    client_id=attendance.client_id,
+                    limit=1,
+                )
+                has_recent_sale = False
+                if recent_sales:
+                    # Check if there's a sale created around the same time as attendance completion
+                    # (within 1 hour before or after attendance completion)
+                    attendance_completed_at = attendance.updated_at or attendance.created_at
+                    for sale in recent_sales:
+                        sale_created_at = sale.created_at
+                        time_diff = abs((sale_created_at - attendance_completed_at).total_seconds())
+                        # If sale was created within 1 hour of attendance completion, consider it related
+                        if time_diff <= 3600:  # 1 hour in seconds
+                            has_recent_sale = True
+                            break
+                
+                # If attendance is LOST, don't generate next steps or generate follow-up steps
+                if attendance.status == AttendanceStatus.LOST:
+                    next_steps.append("Acompanhar cliente para possíveis novas oportunidades")
+                    next_steps.append("Manter relacionamento para futuras necessidades")
+                # If attendance is COMPLETED with a sale, generate post-sale steps
+                elif attendance.status == AttendanceStatus.COMPLETED and has_recent_sale:
+                    next_steps.append("Enviar documentação final da venda")
+                    next_steps.append("Acompanhar processo de escritura/registro")
+                    next_steps.append("Verificar satisfação do cliente após a compra")
+                    next_steps.append("Manter relacionamento para indicações futuras")
+                # If attendance is COMPLETED but no sale, generate normal steps (rare case)
+                elif attendance.status == AttendanceStatus.COMPLETED:
+                    # Only generate generic follow-up steps, not sales-oriented ones
+                    next_steps.append("Acompanhar cliente para próximos passos")
+                    next_steps.append("Manter relacionamento")
+                # If attendance is still ACTIVE (shouldn't happen in _process_completed_attendance, but safety)
+                else:
+                    # Generate next steps from AI analysis (original logic)
+                    if ai_summary.detected_intent:
+                        intent_labels = {
+                            "PROPERTY_SEARCH": "Buscar propriedades similares",
+                            "SCHEDULE_VISIT": "Agendar visita",
+                            "PRICE_NEGOTIATION": "Negociar preço",
+                            "INFORMATION_REQUEST": "Enviar informações solicitadas",
+                        }
+                        intent_label = intent_labels.get(ai_summary.detected_intent.value, "Acompanhar cliente")
+                        next_steps.append(intent_label)
 
-                if ai_summary.recommended_properties:
-                    next_steps.append(f"Recomendar {len(ai_summary.recommended_properties)} propriedade(s) encontrada(s)")
+                    if ai_summary.interest_type_detected:
+                        interest_type_labels = {
+                            "BUY": "Comprar imóvel",
+                            "RENT": "Alugar imóvel",
+                            "SELL": "Vender imóvel",
+                            "INVEST": "Investir em imóvel",
+                        }
+                        interest_type_value = ai_summary.interest_type_detected.value if hasattr(ai_summary.interest_type_detected, 'value') else str(ai_summary.interest_type_detected)
+                        interest_label = interest_type_labels.get(interest_type_value, interest_type_value)
+                        next_steps.append(f"Cliente interessado em: {interest_label}")
+                    
+                    if ai_summary.urgency_level_detected:
+                        urgency_labels = {
+                            "IMMEDIATE": "URGENTE - Contatar imediatamente",
+                            "HIGH": "Alta prioridade - Contatar em até 24h",
+                            "MEDIUM": "Média prioridade - Contatar em até 3 dias",
+                            "LOW": "Baixa prioridade - Contatar em até 7 dias",
+                        }
+                        urgency_value = ai_summary.urgency_level_detected.value if hasattr(ai_summary.urgency_level_detected, 'value') else str(ai_summary.urgency_level_detected)
+                        urgency_label = urgency_labels.get(urgency_value, urgency_value)
+                        next_steps.append(urgency_label)
+
+                    if ai_summary.recommended_properties:
+                        next_steps.append(f"Recomendar {len(ai_summary.recommended_properties)} propriedade(s) encontrada(s)")
 
                 if next_steps:
                     attendance.ai_next_steps = "\n".join(f"• {step}" for step in next_steps)
+                else:
+                    attendance.ai_next_steps = None
 
                 # ⚠️ PROTECTION 2: Do NOT update client profile from completed attendance
                 # The attendance is no longer ACTIVE, so client profile should NOT be updated
@@ -863,6 +904,25 @@ class AttendanceRepository:
         Returns:
             True if objective was completed, False otherwise
         """
+        # First, check if there's a sale registered for this client related to this attendance
+        from app.sales.repository import SaleRepository
+        sale_repo = SaleRepository(self.db)
+        recent_sales = sale_repo.get_all(
+            client_id=attendance.client_id,
+            limit=5,  # Check last 5 sales
+        )
+        
+        if recent_sales:
+            # Check if there's a sale created around the same time as attendance completion
+            # (within 1 hour before or after attendance completion/update)
+            attendance_completed_at = attendance.updated_at or attendance.created_at
+            for sale in recent_sales:
+                sale_created_at = sale.created_at
+                time_diff = abs((sale_created_at - attendance_completed_at).total_seconds())
+                # If sale was created within 1 hour of attendance completion, consider it related
+                if time_diff <= 3600:  # 1 hour in seconds
+                    return True
+        
         # Check client status
         client_repo = ClientRepository(self.db)
         client = client_repo.get_by_id(attendance.client_id)
@@ -977,26 +1037,47 @@ class AttendanceRepository:
             if status_value == "COMPLETED":
                 attendance.ai_summary = ai_summary.summary_text
                 
-                # Check if objective was completed (sale finalized)
-                objective_completed = self._check_objective_completed(
-                    attendance=attendance,
-                    ai_summary=ai_summary
-                )
+                # Generate next steps based on attendance status and sale status
+                next_steps = []
                 
-                # Generate next steps based on whether objective was completed
-                if objective_completed:
-                    # Objective completed - generate post-sale next steps
-                    next_steps = [
-                        "Finalizar documentação da compra",
-                        "Acompanhar processo de escritura",
-                        "Agendar assinatura de contrato",
-                        "Enviar documentação necessária para o cliente"
-                    ]
+                # Check if attendance was completed with a sale
+                from app.sales.repository import SaleRepository
+                sale_repo = SaleRepository(self.db)
+                recent_sales = sale_repo.get_all(
+                    client_id=attendance.client_id,
+                    limit=1,
+                )
+                has_recent_sale = False
+                if recent_sales:
+                    # Check if there's a sale created around the same time as attendance completion
+                    # (within 1 hour before or after attendance completion)
+                    attendance_completed_at = attendance.updated_at or attendance.created_at
+                    for sale in recent_sales:
+                        sale_created_at = sale.created_at
+                        time_diff = abs((sale_created_at - attendance_completed_at).total_seconds())
+                        # If sale was created within 1 hour of attendance completion, consider it related
+                        if time_diff <= 3600:  # 1 hour in seconds
+                            has_recent_sale = True
+                            break
+                
+                # If attendance is LOST, don't generate next steps or generate follow-up steps
+                if attendance.status == AttendanceStatus.LOST:
+                    next_steps.append("Acompanhar cliente para possíveis novas oportunidades")
+                    next_steps.append("Manter relacionamento para futuras necessidades")
+                # If attendance is COMPLETED with a sale, generate post-sale steps
+                elif attendance.status == AttendanceStatus.COMPLETED and has_recent_sale:
+                    next_steps.append("Enviar documentação final da venda")
+                    next_steps.append("Acompanhar processo de escritura/registro")
+                    next_steps.append("Verificar satisfação do cliente após a compra")
+                    next_steps.append("Manter relacionamento para indicações futuras")
+                # If attendance is COMPLETED but no sale, generate normal steps (rare case)
+                elif attendance.status == AttendanceStatus.COMPLETED:
+                    # Only generate generic follow-up steps, not sales-oriented ones
+                    next_steps.append("Acompanhar cliente para próximos passos")
+                    next_steps.append("Manter relacionamento")
+                # If attendance is still ACTIVE, generate regular next steps
                 else:
-                    # Objective not completed - generate regular next steps
-                    next_steps = []
-                    
-                    # Add action based on detected intent
+                    # Generate next steps from AI analysis (original logic)
                     if ai_summary.detected_intent:
                         intent_labels = {
                             "PROPERTY_SEARCH": "Buscar propriedades compatíveis com o perfil",
@@ -1048,6 +1129,8 @@ class AttendanceRepository:
                 
                 if next_steps:
                     attendance.ai_next_steps = "\n".join(f"• {step}" for step in next_steps)
+                else:
+                    attendance.ai_next_steps = None
                 
                 # Update client with AI-detected information GRADUALLY
                 # This happens every time an AI summary is generated/updated (not just when attendance is completed)
