@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.attendances.models import AttendanceChannel, AttendanceStatus
+from app.attendances.models import AttendanceStatus
 from app.clients.models import ClientStatus, InterestType, PropertyType
 
 
@@ -30,7 +30,6 @@ class AttendanceBase(BaseModel):
         None,
         description="Clear objective of this interaction cycle (e.g., 'Purchase residential property in City X'). Can be auto-detected from content if not provided.",
     )
-    channel: AttendanceChannel = Field(..., description="Communication channel")
     raw_content: str = Field(
         ...,
         min_length=1,
@@ -65,7 +64,7 @@ class AttendanceCreate(AttendanceBase):
       closed (ABANDONED) and a new attendance cycle will be created.
     - If no objective is provided, it will be auto-detected from the raw_content.
 
-    **Required fields:** client_id, agent_id, channel, raw_content.
+    **Required fields:** client_id, agent_id, raw_content.
     
     **Automatic behaviors:**
     - AI summary is generated automatically.
@@ -93,7 +92,6 @@ class AttendanceUpdate(BaseModel):
     agent_id: uuid.UUID | None = None
     property_id: uuid.UUID | None = None
     objective: str | None = None
-    channel: AttendanceChannel | None = None
     raw_content: str | None = Field(
         None,
         min_length=1,
@@ -164,7 +162,6 @@ class AttendanceResponse(BaseModel):
     agent_id: uuid.UUID = Field(..., description="Agent ID (required, must be corretor)")
     property_id: uuid.UUID | None = Field(None, description="Property ID (nullable)")
     objective: str | None = Field(None, description="Clear objective of this interaction cycle")
-    channel: AttendanceChannel = Field(..., description="Communication channel")
     raw_content: str = Field(..., min_length=1, description="Raw content of conversations")
     ai_summary: str | None = Field(None, description="AI-generated summary")
     ai_next_steps: str | None = Field(None, description="AI-generated next steps")

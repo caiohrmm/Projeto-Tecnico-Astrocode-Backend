@@ -36,12 +36,6 @@ ENUM_TRANSLATIONS = {
     "NEGOTIATION": "Negociação",
     "WON": "Ganho",
     "LOST": "Perdido",
-    # Attendance Channel
-    "WHATSAPP": "WhatsApp",
-    "PHONE": "Telefone",
-    "EMAIL": "E-mail",
-    "SITE": "Site",
-    "IN_PERSON": "Presencial",
     # Attendance Status
     "ACTIVE": "Ativo",
     "COMPLETED": "Concluído",
@@ -178,8 +172,7 @@ def build_context_prompt(
     
     if attendance_data:
         context_parts.append("=== INFORMAÇÕES DO ATENDIMENTO ===")
-        context_parts.append(f"Data: {attendance_data.get('started_at', 'N/A')}")
-        context_parts.append(f"Canal: {attendance_data.get('channel', 'N/A')}")
+        context_parts.append(f"Data: {attendance_data.get('created_at', 'N/A')}")
         context_parts.append(f"Status: {translate_enum(attendance_data.get('status'))}")
         if attendance_data.get('raw_content'):
             context_parts.append(f"Conteúdo: {attendance_data.get('raw_content')}")

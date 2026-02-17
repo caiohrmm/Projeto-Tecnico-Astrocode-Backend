@@ -17,16 +17,6 @@ if TYPE_CHECKING:
     from app.users.models import User
 
 
-class AttendanceChannel(str, enum.Enum):
-    """Enum for attendance channel."""
-
-    WHATSAPP = "WHATSAPP"
-    SITE = "SITE"
-    PHONE = "PHONE"
-    EMAIL = "EMAIL"
-    IN_PERSON = "IN_PERSON"
-
-
 class AttendanceStatus(str, enum.Enum):
     """
     Enum for attendance status.
@@ -58,7 +48,6 @@ class Attendance(Base):
         agent_id: Foreign key to User (real estate agent)
         property_id: Foreign key to Property (nullable)
         objective: Clear objective of this interaction cycle (e.g., "Purchase residential property in City X")
-        channel: Communication channel (WHATSAPP, SITE, PHONE, EMAIL, IN_PERSON)
         raw_content: Raw content of conversations (can accumulate over time within the same cycle)
         ai_summary: AI-generated summary of the attendance cycle
         ai_next_steps: AI-generated next steps for the client
@@ -101,13 +90,6 @@ class Attendance(Base):
         UUID(as_uuid=True),
         ForeignKey("properties.id", ondelete="SET NULL"),
         nullable=True,
-        index=True,
-    )
-
-    # Attendance details
-    channel: Mapped[AttendanceChannel] = mapped_column(
-        Enum(AttendanceChannel, native_enum=False, length=20),
-        nullable=False,
         index=True,
     )
 
@@ -185,5 +167,5 @@ class Attendance(Base):
 
     def __repr__(self) -> str:
         """String representation of the Attendance."""
-        return f"<Attendance(id={self.id}, client_id={self.client_id}, channel={self.channel}, status={self.status})>"
+        return f"<Attendance(id={self.id}, client_id={self.client_id}, status={self.status})>"
 

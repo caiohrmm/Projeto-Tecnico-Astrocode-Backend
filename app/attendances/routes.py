@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_active_user
-from app.attendances.models import Attendance, AttendanceChannel, AttendanceStatus
+from app.attendances.models import Attendance, AttendanceStatus
 from app.attendances.repository import AttendanceRepository
 from app.attendances.schemas import AttendanceCreate, AttendanceResponse, AttendanceUpdate
 from app.db import get_db
@@ -218,7 +218,6 @@ def list_attendances(
     client_id: uuid.UUID | None = Query(None, description="Filter by client ID"),
     agent_id: uuid.UUID | None = Query(None, description="Filter by agent ID"),
     property_id: uuid.UUID | None = Query(None, description="Filter by property ID"),
-    channel: AttendanceChannel | None = Query(None, description="Filter by channel"),
     status: AttendanceStatus | None = Query(None, description="Filter by status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -232,7 +231,6 @@ def list_attendances(
         client_id: Optional filter by client ID
         agent_id: Optional filter by agent ID
         property_id: Optional filter by property ID
-        channel: Optional filter by channel
         status: Optional filter by status
         db: Database session
         current_user: Current authenticated user
@@ -247,7 +245,6 @@ def list_attendances(
         client_id=client_id,
         agent_id=agent_id,
         property_id=property_id,
-        channel=channel,
         status=status,
     )
     

@@ -137,7 +137,6 @@ class ClientJourneyService:
             "attendances": [
                 {
                     "id": str(a.id),
-                    "channel": a.channel.value if a.channel else None,
                     "status": a.status.value if a.status else None,
                     "created_at": a.created_at.isoformat() if a.created_at else None,
                     "updated_at": a.updated_at.isoformat() if a.updated_at else None,

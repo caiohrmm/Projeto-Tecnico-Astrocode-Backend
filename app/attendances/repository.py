@@ -10,7 +10,7 @@ from typing import List
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.attendances.models import Attendance, AttendanceChannel, AttendanceStatus
+from app.attendances.models import Attendance, AttendanceStatus
 from app.attendances.objective_service import AttendanceObjectiveService
 from app.attendances.schemas import AttendanceCreate, AttendanceUpdate
 from app.ai.models import AISummary, AISummaryStatus
@@ -292,7 +292,6 @@ class AttendanceRepository:
         # Store values before commit (needed for timeline event after commit)
         attendance_id = db_attendance.id
         client_id = db_attendance.client_id
-        channel_value = db_attendance.channel.value if db_attendance.channel else None
         status_value = db_attendance.status.value if db_attendance.status else None
 
         # Commit attendance FIRST to ensure it exists in database
@@ -363,10 +362,9 @@ class AttendanceRepository:
             client_id=client_id,
             event_type=TimelineEventType.ATTENDANCE_STARTED,
             title="Novo ciclo de atendimento iniciado",
-            description=f"Objetivo: {objective or 'Não definido'} - Atendimento via {channel_value or 'canal desconhecido'}",
+            description=f"Objetivo: {objective or 'Não definido'}",
             related_attendance_id=attendance_id,
             event_data={
-                "channel": channel_value,
                 "status": status_value,
                 "objective": objective,
             },
@@ -458,7 +456,7 @@ class AttendanceRepository:
         # Update attendance with accumulated content
         existing_attendance.raw_content = accumulated_content
         
-        # Update other fields if provided (channel, property_id, etc.)
+        # Update other fields if provided (property_id, etc.)
         # IMPORTANT: Only update property_id if explicitly provided OR if detected by AI
         # If property_id is already set and client confirms it, keep it
         # Only change if a different property is detected
@@ -557,10 +555,9 @@ class AttendanceRepository:
             client_id=existing_attendance.client_id,
             event_type=TimelineEventType.ATTENDANCE_STARTED,
             title="Conversa adicionada ao ciclo atual",
-            description=f"Nova interação via {attendance_data.channel.value if attendance_data.channel else 'canal desconhecido'}",
+            description="Nova interação adicionada ao ciclo de atendimento",
             related_attendance_id=existing_attendance.id,
             event_data={
-                "channel": attendance_data.channel.value if attendance_data.channel else None,
                 "content_length": len(new_content),
             },
         )
@@ -1474,7 +1471,7 @@ class AttendanceRepository:
             broker_id=attendance.agent_id,
             scheduled_at=attendance.scheduled_visit_at,
             status=VisitStatus.SCHEDULED,
-            notes=f"Visita agendada durante atendimento via {attendance.channel.value}",
+            notes="Visita agendada durante atendimento",
         )
 
         visit_repo = VisitRepository(self.db)
@@ -1500,7 +1497,6 @@ class AttendanceRepository:
         client_id: uuid.UUID | None = None,
         agent_id: uuid.UUID | None = None,
         property_id: uuid.UUID | None = None,
-        channel: AttendanceChannel | None = None,
         status: AttendanceStatus | None = None,
     ) -> List[Attendance]:
         """
@@ -1512,7 +1508,6 @@ class AttendanceRepository:
             client_id: Optional filter by client ID
             agent_id: Optional filter by agent ID
             property_id: Optional filter by property ID
-            channel: Optional filter by channel
             status: Optional filter by status
 
         Returns:
@@ -1526,8 +1521,6 @@ class AttendanceRepository:
             stmt = stmt.where(Attendance.agent_id == agent_id)
         if property_id:
             stmt = stmt.where(Attendance.property_id == property_id)
-        if channel:
-            stmt = stmt.where(Attendance.channel == channel)
         if status:
             stmt = stmt.where(Attendance.status == status)
         stmt = stmt.offset(skip).limit(limit).order_by(Attendance.created_at.desc())

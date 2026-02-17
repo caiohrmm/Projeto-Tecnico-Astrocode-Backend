@@ -108,8 +108,7 @@ class ChatService:
                 raise ValueError(f"Attendance with ID {attendance_id} not found")
             
             context["attendance_data"] = {
-                "started_at": attendance.started_at.isoformat() if attendance.started_at else None,
-                "channel": attendance.channel.value if attendance.channel else None,
+                "created_at": attendance.created_at.isoformat() if attendance.created_at else None,
                 "status": attendance.status.value if attendance.status else None,
                 "raw_content": attendance.raw_content,
             }
