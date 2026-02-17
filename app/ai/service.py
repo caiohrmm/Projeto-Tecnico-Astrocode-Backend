@@ -1623,7 +1623,8 @@ IMPORTANTE:
             r"agendar\s+visita",
             r"quero\s+ver",
             r"visitar\s+(?:no|na|o)",
-            r"marcar\s+(?:visita|para\s+ver)",
+            r"marcar\s+visita",  # "marcar visita" (more flexible, matches with or without additional words)
+            r"marcar\s+(?:para\s+ver|a\s+visita)",
             r"agendar\s+(?:para|a)",
             r"visita\s+(?:no|na|para)",
         ]
@@ -1641,11 +1642,12 @@ IMPORTANTE:
             r"(\d{1,2})\s+de\s+(\w+)",  # "15 de fevereiro"
         ]
         
-        # Time patterns: HH:MM, "às X horas", "X horas", etc.
+        # Time patterns: HH:MM, "às X horas", "X horas", "as Xh", etc.
         time_patterns = [
             r"(\d{1,2}):(\d{2})",  # HH:MM
             r"às\s+(\d{1,2})\s*h(?:oras|rs)?",  # "às 14 horas"
-            r"(\d{1,2})\s*h(?:oras|rs)?",  # "14 horas"
+            r"as\s+(\d{1,2})\s*h(?:oras|rs)?",  # "as 15h" (lowercase "as")
+            r"(\d{1,2})\s*h(?:oras|rs)?",  # "14 horas" or "15h"
         ]
         
         scheduled_at = None

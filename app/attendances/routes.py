@@ -1,5 +1,6 @@
 """Attendance routes for CRUD operations."""
 
+import logging
 import uuid
 from datetime import datetime
 from typing import List
@@ -16,6 +17,7 @@ from app.users.models import User
 from app.users.repository import UserRepository
 
 router = APIRouter(prefix="/attendances", tags=["attendances"])
+logger = logging.getLogger(__name__)
 
 
 def _validate_agent_is_corretor(agent_id: uuid.UUID, db: Session) -> None:
@@ -139,8 +141,6 @@ def create_attendance(
                     logger.warning(f"Error creating visit from detected intent: {e}", exc_info=True)
     except Exception as e:
         # Log error but don't fail the request
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"Error detecting visit intent: {e}", exc_info=True)
     
     # Detect loss intent from raw_content using AI
@@ -165,11 +165,9 @@ def create_attendance(
                 detected_loss = DetectedLossInfo(**loss_info)
                 logger.info(f"Loss intent detected (suggestion only): {detected_loss.loss_reason} at stage {detected_loss.loss_stage}. Attendance remains ACTIVE until user confirms.")
         else:
-            logger.debug(f"Skipping loss detection: attendance status is {attendance.status.value} (not ACTIVE)")
+                logger.debug(f"Skipping loss detection: attendance status is {attendance.status.value} (not ACTIVE)")
     except Exception as e:
         # Log error but don't fail the request
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"Error detecting loss intent: {e}", exc_info=True)
     
     # Detect sale intent from raw_content using AI
@@ -197,8 +195,6 @@ def create_attendance(
             logger.debug(f"Skipping sale detection: attendance status is {attendance.status.value} (not ACTIVE)")
     except Exception as e:
         # Log error but don't fail the request
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"Error detecting sale intent: {e}", exc_info=True)
     
     # Create response with cycle action info, detected visit, detected loss, and detected sale
@@ -261,8 +257,6 @@ def list_attendances(
         try:
             result.append(AttendanceResponse.model_validate(attendance))
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Error serializing attendance {attendance.id}: {e}", exc_info=True)
             # Continue with other attendances even if one fails
             continue
@@ -424,8 +418,6 @@ def update_attendance(
                         logger.warning(f"Error creating visit from detected intent: {e}", exc_info=True)
         except Exception as e:
             # Log error but don't fail the request
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"Error detecting visit intent: {e}", exc_info=True)
     
     # Detect loss intent if raw_content was updated
@@ -454,8 +446,6 @@ def update_attendance(
                 logger.debug(f"Skipping loss detection: attendance status is {updated_attendance.status.value} (not ACTIVE)")
         except Exception as e:
             # Log error but don't fail the request
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"Error detecting loss intent: {e}", exc_info=True)
     
     # Detect sale intent if raw_content was updated
@@ -484,8 +474,6 @@ def update_attendance(
                 logger.debug(f"Skipping sale detection: attendance status is {updated_attendance.status.value} (not ACTIVE)")
         except Exception as e:
             # Log error but don't fail the request
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"Error detecting sale intent: {e}", exc_info=True)
     
     response = AttendanceResponse.model_validate(updated_attendance)
