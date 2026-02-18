@@ -203,6 +203,7 @@ def list_attendances(
     agent_id: uuid.UUID | None = Query(None, description="Filter by agent ID"),
     property_id: uuid.UUID | None = Query(None, description="Filter by property ID"),
     status: AttendanceStatus | None = Query(None, description="Filter by status"),
+    available_for_visit: bool = Query(False, description="If true, only attendances that can receive a new visit (no pending visit)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[AttendanceResponse]:
@@ -216,6 +217,7 @@ def list_attendances(
         agent_id: Optional filter by agent ID
         property_id: Optional filter by property ID
         status: Optional filter by status
+        available_for_visit: If true, only return attendances that do not have a pending visit
         db: Database session
         current_user: Current authenticated user
 
@@ -230,6 +232,7 @@ def list_attendances(
         agent_id=agent_id,
         property_id=property_id,
         status=status,
+        available_for_visit=available_for_visit,
     )
     
     # Serialize attendances with error handling

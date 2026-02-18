@@ -65,6 +65,7 @@ class VisitRepository:
         client_id: uuid.UUID | None = None,
         broker_id: uuid.UUID | None = None,
         property_id: uuid.UUID | None = None,
+        attendance_id: uuid.UUID | None = None,
         status: VisitStatus | None = None,
         scheduled_from: datetime | None = None,
         scheduled_to: datetime | None = None,
@@ -78,6 +79,7 @@ class VisitRepository:
             client_id: Optional filter by client ID
             broker_id: Optional filter by broker ID
             property_id: Optional filter by property ID
+            attendance_id: Optional filter by attendance ID
             status: Optional filter by status
             scheduled_from: Optional filter by scheduled date (from)
             scheduled_to: Optional filter by scheduled date (to)
@@ -93,6 +95,8 @@ class VisitRepository:
             stmt = stmt.where(Visit.broker_id == broker_id)
         if property_id:
             stmt = stmt.where(Visit.property_id == property_id)
+        if attendance_id:
+            stmt = stmt.where(Visit.attendance_id == attendance_id)
         if status:
             stmt = stmt.where(Visit.status == status)
         if scheduled_from:
@@ -102,6 +106,20 @@ class VisitRepository:
 
         stmt = stmt.offset(skip).limit(limit).order_by(Visit.scheduled_at.asc())
         return list(self.db.scalars(stmt).all())
+
+    def has_pending_visit(self, attendance_id: uuid.UUID) -> bool:
+        """
+        Return True if the attendance has at least one visit that is not completed
+        (status in SCHEDULED, CONFIRMED, IN_PROGRESS).
+        """
+        pending = (VisitStatus.SCHEDULED, VisitStatus.CONFIRMED, VisitStatus.IN_PROGRESS)
+        stmt = (
+            select(Visit.id)
+            .where(Visit.attendance_id == attendance_id)
+            .where(Visit.status.in_(pending))
+            .limit(1)
+        )
+        return self.db.scalar(stmt) is not None
 
     def update(
         self,

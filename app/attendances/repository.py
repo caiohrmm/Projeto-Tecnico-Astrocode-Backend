@@ -1498,6 +1498,7 @@ class AttendanceRepository:
         agent_id: uuid.UUID | None = None,
         property_id: uuid.UUID | None = None,
         status: AttendanceStatus | None = None,
+        available_for_visit: bool = False,
     ) -> List[Attendance]:
         """
         Get all attendances with optional filtering and pagination.
@@ -1509,6 +1510,8 @@ class AttendanceRepository:
             agent_id: Optional filter by agent ID
             property_id: Optional filter by property ID
             status: Optional filter by status
+            available_for_visit: If True, only return attendances that do not have
+                a pending visit (SCHEDULED, CONFIRMED, IN_PROGRESS).
 
         Returns:
             List of attendance instances
@@ -1523,6 +1526,13 @@ class AttendanceRepository:
             stmt = stmt.where(Attendance.property_id == property_id)
         if status:
             stmt = stmt.where(Attendance.status == status)
+        if available_for_visit:
+            pending_statuses = (VisitStatus.SCHEDULED, VisitStatus.CONFIRMED, VisitStatus.IN_PROGRESS)
+            subq = select(Visit.attendance_id).where(
+                Visit.attendance_id.isnot(None),
+                Visit.status.in_(pending_statuses),
+            )
+            stmt = stmt.where(Attendance.id.not_in(subq))
         stmt = stmt.offset(skip).limit(limit).order_by(Attendance.created_at.desc())
         return list(self.db.scalars(stmt).all())
 

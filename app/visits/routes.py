@@ -16,6 +16,7 @@ from app.visits.schemas import VisitCreate, VisitResponse, VisitUpdate
 from app.users.models import User
 from app.attendances.repository import AttendanceRepository
 from app.attendances.models import AttendanceStatus
+from app.attendances.schemas import AttendanceUpdate as AttendanceUpdateSchema
 
 router = APIRouter(prefix="/visits", tags=["visits"])
 
@@ -69,9 +70,11 @@ def create_visit(
     # Validate broker_id must be a corretor
     _validate_broker_is_corretor(visit_data.broker_id, db)
 
-    # If visit is linked to an attendance, ensure attendance exists and is ACTIVE
+    attendance_repo = AttendanceRepository(db)
+    visit_repo = VisitRepository(db)
+
+    # If visit is linked to an attendance, ensure attendance exists, is ACTIVE, and has no pending visit
     if visit_data.attendance_id is not None:
-        attendance_repo = AttendanceRepository(db)
         attendance = attendance_repo.get_by_id(visit_data.attendance_id)
 
         if not attendance:
@@ -86,8 +89,20 @@ def create_visit(
                 detail="Só é permitido criar visitas para atendimentos com status ACTIVE (Ativo).",
             )
 
-    visit_repo = VisitRepository(db)
+        if visit_repo.has_pending_visit(visit_data.attendance_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Este atendimento já possui uma visita agendada ou em andamento. Conclua ou cancele a visita antes de criar outra.",
+            )
+
     visit = visit_repo.create(visit_data)
+
+    # Sync scheduled_visit_at on attendance so IA/resumo always sees the visit date
+    if visit.attendance_id and visit.scheduled_at:
+        attendance = attendance_repo.get_by_id(visit.attendance_id)
+        if attendance:
+            attendance_repo.update(attendance, AttendanceUpdateSchema(scheduled_visit_at=visit.scheduled_at))
+
     return VisitResponse.model_validate(visit)
 
 
@@ -98,6 +113,7 @@ def list_visits(
     client_id: uuid.UUID | None = Query(None, description="Filter by client ID"),
     broker_id: uuid.UUID | None = Query(None, description="Filter by broker ID"),
     property_id: uuid.UUID | None = Query(None, description="Filter by property ID"),
+    attendance_id: uuid.UUID | None = Query(None, description="Filter by attendance ID"),
     status: VisitStatus | None = Query(None, description="Filter by status"),
     scheduled_from: datetime | None = Query(None, description="Filter by scheduled date (from)"),
     scheduled_to: datetime | None = Query(None, description="Filter by scheduled date (to)"),
@@ -129,6 +145,7 @@ def list_visits(
         client_id=client_id,
         broker_id=broker_id,
         property_id=property_id,
+        attendance_id=attendance_id,
         status=status,
         scheduled_from=scheduled_from,
         scheduled_to=scheduled_to,
@@ -178,22 +195,10 @@ def update_visit(
     """
     Update a visit.
 
-    Args:
-        visit_id: Visit UUID
-        visit_data: Visit update data (only provided fields will be updated)
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Updated visit response
-
-    Raises:
-        HTTPException: If visit is not found
+    When the visit is linked to an attendance (attendance_id), only scheduled_at and status
+    can be updated (reagendamento). Other fields are ignored. The attendance.scheduled_visit_at
+    is kept in sync when scheduled_at is updated.
     """
-    # Validate broker_id if being updated
-    if visit_data.broker_id is not None:
-        _validate_broker_is_corretor(visit_data.broker_id, db)
-
     visit_repo = VisitRepository(db)
     visit = visit_repo.get_by_id(visit_id)
 
@@ -203,24 +208,46 @@ def update_visit(
             detail=f"Visit with ID {visit_id} not found",
         )
 
-    # If attendance_id is being updated, ensure attendance exists and is ACTIVE
-    if visit_data.attendance_id is not None:
-        attendance_repo = AttendanceRepository(db)
-        attendance = attendance_repo.get_by_id(visit_data.attendance_id)
+    attendance_repo = AttendanceRepository(db)
 
-        if not attendance:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Attendance with ID {visit_data.attendance_id} not found",
-            )
-
-        if attendance.status != AttendanceStatus.ACTIVE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Só é permitido vincular visitas a atendimentos com status ACTIVE (Ativo).",
-            )
+    # Visit linked to attendance: only allow scheduled_at and status (reagendamento)
+    if visit.attendance_id is not None:
+        allowed = {}
+        if visit_data.scheduled_at is not None:
+            allowed["scheduled_at"] = visit_data.scheduled_at
+        if visit_data.status is not None:
+            allowed["status"] = visit_data.status
+        visit_data = VisitUpdate(**allowed)
+    else:
+        if visit_data.broker_id is not None:
+            _validate_broker_is_corretor(visit_data.broker_id, db)
+        # When not linked, do not allow changing attendance_id to one that has pending visit
+        if visit_data.attendance_id is not None:
+            att = attendance_repo.get_by_id(visit_data.attendance_id)
+            if not att:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Attendance with ID {visit_data.attendance_id} not found",
+                )
+            if att.status != AttendanceStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Só é permitido vincular visitas a atendimentos com status ACTIVE (Ativo).",
+                )
+            if visit_repo.has_pending_visit(visit_data.attendance_id):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Este atendimento já possui uma visita agendada ou em andamento.",
+                )
 
     updated_visit = visit_repo.update(visit, visit_data)
+
+    # Sync attendance.scheduled_visit_at when visit linked and scheduled_at was updated
+    if updated_visit.attendance_id and updated_visit.scheduled_at:
+        attendance = attendance_repo.get_by_id(updated_visit.attendance_id)
+        if attendance:
+            attendance_repo.update(attendance, AttendanceUpdateSchema(scheduled_visit_at=updated_visit.scheduled_at))
+
     return VisitResponse.model_validate(updated_visit)
 
 
