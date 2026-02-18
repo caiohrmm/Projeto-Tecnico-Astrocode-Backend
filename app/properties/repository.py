@@ -40,6 +40,7 @@ class PropertyRepository:
             property_dict["status"] = PropertyStatus.DRAFT
 
         db_property = Property(**property_dict)
+        db_property.visibility_score = calculate_visibility_score(db_property)
         self.db.add(db_property)
         self.db.commit()
         self.db.refresh(db_property)
@@ -301,6 +302,7 @@ class PropertyRepository:
             Updated property instance
         """
         property.main_image_url = image_url
+        property.visibility_score = calculate_visibility_score(property)
         self.db.commit()
         self.db.refresh(property)
         return property
