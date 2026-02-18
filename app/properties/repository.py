@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.properties.models import BusinessType, Property, PropertyStatus, PropertyType
 from app.properties.schemas import PropertyCreate, PropertyUpdate
+from app.properties.visibility_score_service import calculate_visibility_score
 
 
 class PropertyRepository:
@@ -108,7 +109,15 @@ class PropertyRepository:
         if state:
             stmt = stmt.where(Property.state == state.upper())
 
-        stmt = stmt.offset(skip).limit(limit).order_by(Property.created_at.desc())
+        # Order by visibility_score DESC (higher first), NULLs last, then created_at DESC
+        stmt = (
+            stmt.order_by(
+                Property.visibility_score.desc().nullslast(),
+                Property.created_at.desc(),
+            )
+            .offset(skip)
+            .limit(limit)
+        )
         return list(self.db.scalars(stmt).all())
 
     def find_recommended_properties(
@@ -228,8 +237,14 @@ class PropertyRepository:
             if price_conditions:
                 stmt = stmt.where(and_(*price_conditions))
 
-        # Order by relevance (published properties first, then by creation date)
-        stmt = stmt.order_by(Property.created_at.desc()).limit(limit)
+        # Order by visibility_score (higher first), then created_at
+        stmt = (
+            stmt.order_by(
+                Property.visibility_score.desc().nullslast(),
+                Property.created_at.desc(),
+            )
+            .limit(limit)
+        )
         
         final_properties = list(self.db.scalars(stmt).all())
 
@@ -262,6 +277,10 @@ class PropertyRepository:
         for field, value in update_data.items():
             setattr(property, field, value)
 
+        self.db.commit()
+        self.db.refresh(property)
+        # Recalculate visibility score for consistent ordering
+        property.visibility_score = calculate_visibility_score(property)
         self.db.commit()
         self.db.refresh(property)
         return property
