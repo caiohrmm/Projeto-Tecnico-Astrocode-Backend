@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from sqlalchemy import select
@@ -27,6 +27,15 @@ from app.visits.repository import VisitRepository
 from app.clients.timeline_models import ClientTimeline, TimelineEventType
 
 logger = logging.getLogger(__name__)
+
+
+def _to_utc_timestamp(dt: datetime | None) -> float:
+    """Convert datetime to UTC timestamp for safe comparison (handles naive/aware)."""
+    if dt is None:
+        return 0.0
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).timestamp()
+    return dt.replace(tzinfo=timezone.utc).timestamp()
 
 
 class AttendanceRepository:
@@ -694,7 +703,10 @@ class AttendanceRepository:
                     attendance_completed_at = attendance.updated_at or attendance.created_at
                     for sale in recent_sales:
                         sale_created_at = sale.created_at
-                        time_diff = abs((sale_created_at - attendance_completed_at).total_seconds())
+                        time_diff = abs(
+                            _to_utc_timestamp(sale_created_at)
+                            - _to_utc_timestamp(attendance_completed_at)
+                        )
                         # If sale was created within 1 hour of attendance completion, consider it related
                         if time_diff <= 3600:  # 1 hour in seconds
                             has_recent_sale = True
@@ -927,7 +939,10 @@ class AttendanceRepository:
             attendance_completed_at = attendance.updated_at or attendance.created_at
             for sale in recent_sales:
                 sale_created_at = sale.created_at
-                time_diff = abs((sale_created_at - attendance_completed_at).total_seconds())
+                time_diff = abs(
+                    _to_utc_timestamp(sale_created_at)
+                    - _to_utc_timestamp(attendance_completed_at)
+                )
                 # If sale was created within 1 hour of attendance completion, consider it related
                 if time_diff <= 3600:  # 1 hour in seconds
                     return True
@@ -1063,7 +1078,10 @@ class AttendanceRepository:
                     attendance_completed_at = attendance.updated_at or attendance.created_at
                     for sale in recent_sales:
                         sale_created_at = sale.created_at
-                        time_diff = abs((sale_created_at - attendance_completed_at).total_seconds())
+                        time_diff = abs(
+                            _to_utc_timestamp(sale_created_at)
+                            - _to_utc_timestamp(attendance_completed_at)
+                        )
                         # If sale was created within 1 hour of attendance completion, consider it related
                         if time_diff <= 3600:  # 1 hour in seconds
                             has_recent_sale = True
