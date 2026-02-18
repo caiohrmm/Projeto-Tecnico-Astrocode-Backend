@@ -330,6 +330,7 @@ def list_properties(
     property_type: PropertyType | None = Query(None, description="Filter by property type"),
     business_type: BusinessType | None = Query(None, description="Filter by business type"),
     status: PropertyStatus | None = Query(None, description="Filter by status"),
+    available_only: bool = Query(False, description="If True, return only PUBLISHED (excludes SOLD, RENTED, etc.)"),
     city: str | None = Query(None, description="Filter by city (partial match)"),
     state: str | None = Query(None, description="Filter by state (2 letters)"),
     db: Session = Depends(get_db),
@@ -344,6 +345,7 @@ def list_properties(
         property_type: Optional filter by property type
         business_type: Optional filter by business type
         status: Optional filter by status
+        available_only: If True, only return PUBLISHED properties
         city: Optional filter by city
         state: Optional filter by state
         db: Database session
@@ -352,13 +354,14 @@ def list_properties(
     Returns:
         List of property responses
     """
+    effective_status = PropertyStatus.PUBLISHED if available_only else status
     property_repo = PropertyRepository(db)
     properties = property_repo.get_all(
         skip=skip,
         limit=limit,
         property_type=property_type,
         business_type=business_type,
-        status=status,
+        status=effective_status,
         city=city,
         state=state,
     )
