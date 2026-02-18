@@ -29,6 +29,31 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Schema for forgot password request."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Schema for reset password request."""
+
+    token: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=6)
+
+
+class ForgotPasswordResponse(BaseModel):
+    """Schema for forgot password response (generic for security)."""
+
+    message: str = "Se o email existir em nossa base, você receberá um link para redefinir sua senha."
+
+
+class ResetPasswordResponse(BaseModel):
+    """Schema for reset password response."""
+
+    message: str = "Senha alterada com sucesso. Faça login com a nova senha."
+
+
 class TokenData(BaseModel):
     """
     Schema for decoded token data.

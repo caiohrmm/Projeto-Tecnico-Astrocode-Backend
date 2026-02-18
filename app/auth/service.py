@@ -1,10 +1,15 @@
 """Authentication service for login and user management."""
 
+import secrets
+from datetime import datetime, timezone, timedelta
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth.jwt import create_access_token
 from app.auth.password import hash_password, verify_password
+from app.config.settings import get_settings
+from app.services.email_service import EmailService
 from app.users.repository import UserRepository
 from app.users.schemas import UserCreate
 
@@ -121,4 +126,54 @@ class AuthService:
             "access_token": access_token,
             "token_type": "bearer",
         }
+
+    def request_password_reset(self, email: str) -> None:
+        """
+        Request password reset for a user. Generates token, stores it, and sends email.
+
+        Same response whether email exists or not (security - prevent enumeration).
+
+        Args:
+            email: User email address
+        """
+        email = email.lower().strip()
+        user = self.user_repo.get_by_email(email)
+
+        if user:
+            token = secrets.token_urlsafe(32)
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+            self.user_repo.set_password_reset_token(user, token, expires_at)
+
+            settings = get_settings()
+            reset_link = f"{settings.frontend_url}/reset-password?token={token}"
+
+            email_service = EmailService()
+            email_service.send_password_reset_email(
+                to_email=user.email,
+                reset_link=reset_link,
+                user_name=user.full_name,
+            )
+
+    def reset_password(self, token: str, new_password: str) -> None:
+        """
+        Reset user password using valid token.
+
+        Args:
+            token: Password reset token from email link
+            new_password: New password to set
+
+        Raises:
+            HTTPException: If token is invalid or expired
+        """
+        user = self.user_repo.get_by_password_reset_token(token)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Link inválido ou expirado. Solicite uma nova redefinição de senha.",
+            )
+
+        hashed_password = hash_password(new_password)
+        user.hashed_password = hashed_password
+        self.user_repo.set_password_reset_token(user, None, None)
 

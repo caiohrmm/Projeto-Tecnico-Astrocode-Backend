@@ -357,6 +357,8 @@ Authorization: Bearer {token_gestor}
 
 ### Autenticação (Públicos)
 - `POST /auth/login` - Login com email/senha
+- `POST /auth/forgot-password` - Solicitar redefinição de senha (envia e-mail com link)
+- `POST /auth/reset-password` - Redefinir senha com token do e-mail
 - `GET /auth/google/login` - Iniciar OAuth Google
 - `GET /auth/google/callback` - Callback OAuth Google
 

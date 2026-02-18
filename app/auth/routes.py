@@ -7,7 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_active_user, get_current_manager
 from app.auth.oauth_service import OAuthService
-from app.auth.schemas import LoginRequest, TokenResponse
+from app.auth.schemas import (
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
+    LoginRequest,
+    ResetPasswordRequest,
+    ResetPasswordResponse,
+    TokenResponse,
+)
 from app.auth.service import AuthService
 from app.db import get_db
 from app.users.models import User
@@ -155,6 +162,45 @@ def public_register(
     token_data = auth_service.register_user(user_data_with_role)
     
     return TokenResponse(**token_data)
+
+
+@router.post(
+    "/forgot-password",
+    response_model=ForgotPasswordResponse,
+    status_code=status.HTTP_200_OK,
+)
+def forgot_password(
+    request: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+) -> ForgotPasswordResponse:
+    """
+    Request password reset. Sends email with reset link if user exists.
+
+    Always returns same message for security (no email enumeration).
+    """
+    auth_service = AuthService(db)
+    auth_service.request_password_reset(request.email)
+    return ForgotPasswordResponse()
+
+
+@router.post(
+    "/reset-password",
+    response_model=ResetPasswordResponse,
+    status_code=status.HTTP_200_OK,
+)
+def reset_password(
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+) -> ResetPasswordResponse:
+    """
+    Reset password using token from email link.
+    """
+    auth_service = AuthService(db)
+    auth_service.reset_password(
+        token=request.token,
+        new_password=request.new_password,
+    )
+    return ResetPasswordResponse()
 
 
 # Google OAuth routes

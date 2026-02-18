@@ -1,6 +1,7 @@
 """User repository for database operations."""
 
 import uuid
+from datetime import datetime
 from typing import List
 
 from sqlalchemy import select
@@ -70,6 +71,46 @@ class UserRepository:
         email = email.lower().strip()
         stmt = select(User).where(User.email == email)
         return self.db.scalar(stmt)
+
+    def get_by_password_reset_token(self, token: str) -> User | None:
+        """
+        Get user by valid password reset token.
+
+        Args:
+            token: Password reset token
+
+        Returns:
+            User instance or None if not found or token expired
+        """
+        from datetime import timezone
+
+        now = datetime.now(timezone.utc)
+        stmt = select(User).where(
+            User.password_reset_token == token,
+            User.password_reset_expires_at.isnot(None),
+            User.password_reset_expires_at > now,
+        )
+        return self.db.scalar(stmt)
+
+    def set_password_reset_token(
+        self, user: User, token: str | None, expires_at: datetime | None
+    ) -> User:
+        """
+        Set or clear password reset token for user.
+
+        Args:
+            user: User instance
+            token: Reset token (or None to clear)
+            expires_at: Expiration datetime (or None to clear)
+
+        Returns:
+            Updated user instance
+        """
+        user.password_reset_token = token
+        user.password_reset_expires_at = expires_at
+        self.db.commit()
+        self.db.refresh(user)
+        return user
 
     def get_all(
         self,

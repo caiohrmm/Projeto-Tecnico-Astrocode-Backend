@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     # Frontend URL for OAuth redirects
     frontend_url: str = "http://localhost:5173"
 
+    # SMTP for password reset emails (optional - if not set, link is logged to console)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@example.com"
+    smtp_use_tls: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:
