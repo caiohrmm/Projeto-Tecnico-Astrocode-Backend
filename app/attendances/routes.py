@@ -59,10 +59,9 @@ def create_attendance(
     Create a new attendance or update an existing active one.
 
     **Cycle Logic:**
-    - If the client has an active attendance with the same objective, the new content
-      will be accumulated into the existing attendance (conversation continues).
-    - If the objective has changed significantly, the previous active attendance will be
-      closed (ABANDONED) and a new attendance cycle will be created.
+    - Client has only one active attendance at a time.
+    - If the client has an active attendance, new content is accumulated into it.
+    - A new cycle is created only when no active attendance exists (previous closed).
     - If no objective is provided, it will be auto-detected from the raw_content.
 
     **Automatic Behaviors:**

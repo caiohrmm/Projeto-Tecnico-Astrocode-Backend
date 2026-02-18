@@ -145,13 +145,11 @@ class AttendanceRepository:
 
     def create(self, attendance_data: AttendanceCreate) -> Attendance:
         """
-        Create a new attendance or update existing active attendance based on objective.
-        
-        This method implements the goal-oriented cycle logic:
-        - Detects objective from raw_content
-        - Checks if there's an active attendance with similar objective
-        - Creates new attendance if objective changed significantly
-        - Updates existing attendance if same objective (accumulates conversations)
+        Create a new attendance or update existing active attendance.
+
+        Client has only one active attendance at a time. If an active attendance exists,
+        it is updated (content accumulated). A new cycle is created only when no active
+        attendance exists (previous one was closed: COMPLETED, LOST, or ABANDONED).
         
         **Concurrency Safety:**
         - Uses database-level locking to prevent race conditions

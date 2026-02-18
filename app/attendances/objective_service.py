@@ -449,102 +449,19 @@ Responda APENAS com um JSON válido no formato:
     ) -> bool:
         """
         Determine if a new attendance should be created or existing one should be updated.
-        
-        Uses structured objective comparison for robust decision-making.
-        
-        Rules for creating NEW attendance:
-        - Objective changed significantly (different interest type, different city)
-        - Client reactivated after long inactivity (REACTIVATION_THRESHOLD_DAYS)
-        - Previous attendance was closed (COMPLETED, LOST, ABANDONED)
-        
-        Rules for UPDATING existing attendance:
-        - Same objective (follow-up, negotiation, multiple visits, time to decide)
-        - Refining preferences within same goal (e.g., property type change)
-        
-        Args:
-            client_id: Client UUID
-            new_objective: New structured objective detected from content
-            existing_active_attendance: Existing active attendance (if any)
-            db: Database session
-            raw_content: Raw content for additional analysis
-            
-        Returns:
-            True if should create new attendance, False if should update existing
+
+        Client has only one active attendance at a time. Must close the current cycle
+        (COMPLETED, LOST, ABANDONED) before creating a new one.
+
+        Rules:
+        - No existing ACTIVE attendance → create new
+        - Existing ACTIVE attendance → always update (accumulate content)
+        - No objective similarity check; new cycles require closing the current one first.
         """
-        # If no existing active attendance, create new
         if not existing_active_attendance:
             return True
-        
-        # If existing attendance is not ACTIVE, create new
         if existing_active_attendance.status != AttendanceStatus.ACTIVE:
             return True
-        
-        # If no new objective detected, update existing (might be follow-up)
-        if not new_objective:
-            return False
-        
-        # Parse existing objective from string (backward compatibility)
-        existing_objective_string = existing_active_attendance.objective
-        existing_objective = None
-        if existing_objective_string:
-            existing_objective = AttendanceObjectiveService.parse_objective_from_string(existing_objective_string)
-        
-        # If we can't parse existing objective, compare by string (fallback)
-        if not existing_objective:
-            # If existing has no objective but new one does, update existing with new objective
-            if new_objective:
-                logger.info(
-                    f"Existing attendance has no objective, updating with new objective for client {client_id}."
-                )
-                return False
-            return False
-        
-        # Compare structured objectives
-        if AttendanceObjectiveService.compare_objectives(existing_objective, new_objective):
-            # Objectives are similar - update existing
-            logger.info(
-                f"Objectives are similar for client {client_id}. Updating existing attendance."
-            )
-            return False
-        
-        # Objectives are different - check if it's a significant change
-        
-        # If intent_type changed, create new
-        if existing_objective.intent_type and new_objective.intent_type:
-            if existing_objective.intent_type != new_objective.intent_type:
-                logger.info(
-                    f"Intent type changed from {existing_objective.intent_type} to {new_objective.intent_type} "
-                    f"for client {client_id}. Creating new attendance."
-                )
-                return True
-        
-        # If city changed, create new
-        if existing_objective.city and new_objective.city:
-            city1 = existing_objective.city.strip().lower()
-            city2 = new_objective.city.strip().lower()
-            if city1 != city2:
-                logger.info(
-                    f"City changed from {existing_objective.city} to {new_objective.city} "
-                    f"for client {client_id}. Creating new attendance."
-                )
-                return True
-        
-        # Check for reactivation (long inactivity based on updated_at)
-        if existing_active_attendance.updated_at:
-            days_since_updated = (datetime.utcnow() - existing_active_attendance.updated_at.replace(tzinfo=None)).days
-            if days_since_updated >= AttendanceObjectiveService.REACTIVATION_THRESHOLD_DAYS:
-                logger.info(
-                    f"Client {client_id} reactivated after {days_since_updated} days of inactivity. Creating new attendance."
-                )
-                return True
-        
-        # If we get here, objectives are different but not significantly different
-        # (e.g., property type refinement, same city/interest)
-        # Update existing attendance
-        logger.info(
-            f"Objective changed but not significantly for client {client_id}. "
-            f"Updating existing attendance. Old: {existing_objective.to_human_readable()}, "
-            f"New: {new_objective.to_human_readable()}"
-        )
+        # Has active attendance → update it, never create new until cycle is closed
         return False
 
