@@ -1345,7 +1345,9 @@ IMPORTANTE:
             # If Gemini is not configured, use regex-based fallback
             if not gemini.is_configured():
                 logger.warning("Gemini API not configured, using regex-based sale detection")
-                return AISummaryService._detect_sale_intent_regex(processed_content, attendance_status)
+                return AISummaryService._detect_sale_intent_regex(
+                    processed_content, attendance_status, property_id
+                )
             
             # Build context
             context = ""
@@ -1408,7 +1410,9 @@ IMPORTANTE:
                 
                 if result.get("error"):
                     logger.error(f"Error detecting sale intent with Gemini: {result.get('error')}")
-                    return AISummaryService._detect_sale_intent_regex(processed_content, attendance_status)
+                    return AISummaryService._detect_sale_intent_regex(
+                        processed_content, attendance_status, property_id
+                    )
                 
                 answer = result.get("answer", "").strip()
                 if not answer:
@@ -1452,11 +1456,12 @@ IMPORTANTE:
                         logger.warning(f"Invalid payment_method: {payment_method}, ignoring")
                         payment_method = None
                 
-                # Build response
+                # Build response - incluir property_id do atendimento para pré-preencher o modal
                 sale_info = {
                     "detected": True,
                     "sale_type": sale_type,
                     "sale_value": parsed.get("sale_value"),
+                    "property_id": property_id,  # Imóvel vinculado ao atendimento
                     "confidence": min(max(parsed.get("confidence", 0.7), 0.0), 1.0),  # Clamp between 0 and 1
                     "extracted_text": parsed.get("extracted_text", ""),
                     "payment_method": payment_method,
@@ -1468,17 +1473,25 @@ IMPORTANTE:
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Error parsing JSON from Gemini response: {e}, answer: {answer}")
-                return AISummaryService._detect_sale_intent_regex(processed_content, attendance_status)
+                return AISummaryService._detect_sale_intent_regex(
+                    processed_content, attendance_status, property_id
+                )
             except Exception as e:
                 logger.error(f"Exception detecting sale intent with Gemini: {e}", exc_info=True)
-                return AISummaryService._detect_sale_intent_regex(processed_content, attendance_status)
+                return AISummaryService._detect_sale_intent_regex(
+                    processed_content, attendance_status, property_id
+                )
                 
         except Exception as e:
             logger.error(f"Error in detect_sale_intent: {e}", exc_info=True)
             return None
 
     @staticmethod
-    def _detect_sale_intent_regex(raw_content: str, attendance_status: str | None = None) -> dict[str, Any] | None:
+    def _detect_sale_intent_regex(
+        raw_content: str,
+        attendance_status: str | None = None,
+        property_id: uuid.UUID | None = None,
+    ) -> dict[str, Any] | None:
         """
         Fallback regex-based sale intent detection.
         
@@ -1487,6 +1500,7 @@ IMPORTANTE:
         Args:
             raw_content: Raw content to analyze
             attendance_status: Current attendance status (if COMPLETED, detection is skipped)
+            property_id: Property ID from attendance or linked visit for pre-filling sale modal
             
         Returns:
             Sale info dict or None
@@ -1553,6 +1567,7 @@ IMPORTANTE:
             "detected": True,
             "sale_type": sale_type,
             "sale_value": sale_value,
+            "property_id": property_id,  # Imóvel vinculado ao atendimento
             "confidence": 0.6,  # Lower confidence for regex-based
             "extracted_text": raw_content[:200],  # First 200 chars
             "payment_method": payment_method,

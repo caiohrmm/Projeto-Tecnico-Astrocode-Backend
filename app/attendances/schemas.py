@@ -144,6 +144,7 @@ class DetectedSaleInfo(BaseModel):
     detected: bool = Field(..., description="Whether a sale intent was detected")
     sale_type: str | None = Field(None, description="Suggested sale type (SALE or RENT)")
     sale_value: float | None = Field(None, description="Suggested sale value extracted from content")
+    property_id: uuid.UUID | None = Field(None, description="Property ID from attendance or linked visit")
     confidence: float | None = Field(None, description="Confidence score (0-1)")
     extracted_text: str | None = Field(None, description="Text that indicated sale intent")
     payment_method: str | None = Field(None, description="Payment method mentioned (CASH, FINANCING, etc.)")

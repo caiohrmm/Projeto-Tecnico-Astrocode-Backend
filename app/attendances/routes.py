@@ -164,10 +164,18 @@ def create_attendance(
         # ⚠️ PROTECTION: Only detect if attendance is still ACTIVE (not COMPLETED, LOST, or ABANDONED)
         # This prevents multiple detections and annoying popups
         if attendance.status.value == "ACTIVE":
+            # Usar imóvel do atendimento ou da visita vinculada (mais recente) para pré-preencher o modal de venda
+            sale_property_id = attendance.property_id
+            if not sale_property_id:
+                from app.visits.repository import VisitRepository
+                visit_repo = VisitRepository(db)
+                recent_visit = visit_repo.get_most_recent_visit_with_property(attendance.id)
+                if recent_visit:
+                    sale_property_id = recent_visit.property_id
             sale_info = AISummaryService.detect_sale_intent(
                 raw_content=attendance.raw_content,
                 client_id=attendance.client_id,
-                property_id=attendance.property_id,
+                property_id=sale_property_id,
                 agent_id=attendance.agent_id,
                 attendance_status=attendance.status.value,  # Pass current status to skip if COMPLETED
             )
@@ -427,10 +435,18 @@ def update_attendance(
             # ⚠️ PROTECTION: Only detect if attendance is still ACTIVE (not COMPLETED, LOST, or ABANDONED)
             # This prevents multiple detections and annoying popups
             if updated_attendance.status.value == "ACTIVE":
+                # Usar imóvel do atendimento ou da visita vinculada (mais recente) para pré-preencher o modal de venda
+                sale_property_id = updated_attendance.property_id
+                if not sale_property_id:
+                    from app.visits.repository import VisitRepository
+                    visit_repo = VisitRepository(db)
+                    recent_visit = visit_repo.get_most_recent_visit_with_property(updated_attendance.id)
+                    if recent_visit:
+                        sale_property_id = recent_visit.property_id
                 sale_info = AISummaryService.detect_sale_intent(
                     raw_content=updated_attendance.raw_content,
                     client_id=updated_attendance.client_id,
-                    property_id=updated_attendance.property_id,
+                    property_id=sale_property_id,
                     agent_id=updated_attendance.agent_id,
                     attendance_status=updated_attendance.status.value,  # Pass current status to skip if COMPLETED
                 )

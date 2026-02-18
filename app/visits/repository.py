@@ -107,6 +107,20 @@ class VisitRepository:
         stmt = stmt.offset(skip).limit(limit).order_by(Visit.scheduled_at.asc())
         return list(self.db.scalars(stmt).all())
 
+    def get_most_recent_visit_with_property(self, attendance_id: uuid.UUID) -> "Visit | None":
+        """
+        Return the most recent visit linked to this attendance that has a property_id.
+        Used to pre-fill the sale modal with the property from the visit (e.g. "após a visita fechou a compra").
+        """
+        stmt = (
+            select(Visit)
+            .where(Visit.attendance_id == attendance_id)
+            .where(Visit.property_id.isnot(None))
+            .order_by(Visit.scheduled_at.desc())
+            .limit(1)
+        )
+        return self.db.scalar(stmt)
+
     def has_pending_visit(self, attendance_id: uuid.UUID) -> bool:
         """
         Return True if the attendance has at least one visit that is not completed
