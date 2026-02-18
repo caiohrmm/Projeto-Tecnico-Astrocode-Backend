@@ -14,6 +14,8 @@ from app.visits.models import Visit, VisitStatus
 from app.visits.repository import VisitRepository
 from app.visits.schemas import VisitCreate, VisitResponse, VisitUpdate
 from app.users.models import User
+from app.attendances.repository import AttendanceRepository
+from app.attendances.models import AttendanceStatus
 
 router = APIRouter(prefix="/visits", tags=["visits"])
 
@@ -66,6 +68,23 @@ def create_visit(
     """
     # Validate broker_id must be a corretor
     _validate_broker_is_corretor(visit_data.broker_id, db)
+
+    # If visit is linked to an attendance, ensure attendance exists and is ACTIVE
+    if visit_data.attendance_id is not None:
+        attendance_repo = AttendanceRepository(db)
+        attendance = attendance_repo.get_by_id(visit_data.attendance_id)
+
+        if not attendance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Attendance with ID {visit_data.attendance_id} not found",
+            )
+
+        if attendance.status != AttendanceStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Só é permitido criar visitas para atendimentos com status ACTIVE (Ativo).",
+            )
 
     visit_repo = VisitRepository(db)
     visit = visit_repo.create(visit_data)
@@ -183,6 +202,23 @@ def update_visit(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Visit with ID {visit_id} not found",
         )
+
+    # If attendance_id is being updated, ensure attendance exists and is ACTIVE
+    if visit_data.attendance_id is not None:
+        attendance_repo = AttendanceRepository(db)
+        attendance = attendance_repo.get_by_id(visit_data.attendance_id)
+
+        if not attendance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Attendance with ID {visit_data.attendance_id} not found",
+            )
+
+        if attendance.status != AttendanceStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Só é permitido vincular visitas a atendimentos com status ACTIVE (Ativo).",
+            )
 
     updated_visit = visit_repo.update(visit, visit_data)
     return VisitResponse.model_validate(updated_visit)

@@ -910,10 +910,14 @@ Responda APENAS com o nome da cidade ou "null":"""
             # Use Gemini to detect visit intent
             from datetime import datetime, timedelta, timezone
             
-            # Use UTC for timezone-aware datetime
-            current_date = datetime.now(timezone.utc)
-            current_date_str = current_date.strftime("%d/%m/%Y")
-            current_year = current_date.year
+            # Get current date/time in Brazil timezone (UTC-3)
+            # When user says "14h", they mean 14h Brazil time, not UTC
+            brazil_tz = timezone(timedelta(hours=-3))  # UTC-3 (Brasil)
+            current_date_utc = datetime.now(timezone.utc)
+            current_date_brazil = current_date_utc.astimezone(brazil_tz)
+            current_date_str = current_date_brazil.strftime("%d/%m/%Y")
+            current_time_str = current_date_brazil.strftime("%H:%M")
+            current_year = current_date_brazil.year
             
             # Build context
             context = ""
@@ -927,7 +931,9 @@ Responda APENAS com o nome da cidade ou "null":"""
 Analise o seguinte conteúdo de conversa e identifique se o cliente expressou desejo de agendar uma visita a um imóvel.
 
 DATA ATUAL: {current_date_str} ({current_year})
+HORA ATUAL: {current_time_str} (horário do Brasil, UTC-3)
 ANO ATUAL: {current_year}
+FUSO HORÁRIO: Brasil (UTC-3)
 {context}
 
 CONTEÚDO DA CONVERSA:
@@ -937,14 +943,14 @@ INSTRUÇÕES:
 1. Identifique se há MENÇÃO EXPLÍCITA de agendamento de visita (ex: "quero visitar", "podemos marcar", "agendar visita", "quero ver o imóvel", "visitar na data X", etc.)
 2. Se detectar intenção de visita, extraia:
    - DATA: no formato DD/MM/YYYY (se mencionada)
-   - HORA: no formato HH:MM (se mencionada)
+   - HORA: no formato HH:MM (se mencionada) - IMPORTANTE: horário mencionado é horário do Brasil (UTC-3)
    - Se apenas dia da semana for mencionado (ex: "segunda-feira"), calcule a data considerando a data atual
    - Se apenas data parcial for mencionada (ex: "dia 15"), assuma o mês atual ou próximo se já passou
    - Se ano não for mencionado, assuma o ano atual ({current_year}) ou próximo se a data já passou
 3. VALIDAÇÕES:
    - Data não pode ser no passado (se mencionada data passada, retorne null)
    - Data deve ser válida (ex: não pode ser 31/02)
-   - Hora deve estar entre 08:00 e 20:00 (horário comercial)
+   - Hora deve estar entre 08:00 e 20:00 (horário comercial do Brasil)
    - Se apenas horário for mencionado sem data, assuma "hoje" se ainda não passou, senão "amanhã"
 4. Se NÃO houver intenção clara de agendamento, retorne null
 5. Se a data mencionada for ambígua ou inválida, retorne null
@@ -952,9 +958,9 @@ INSTRUÇÕES:
 Responda APENAS com um JSON válido no formato:
 {{
     "detected": true,
-    "scheduled_at": "2024-02-15T14:30:00",  // ISO format datetime (UTC)
+    "scheduled_at": "2024-02-15T14:30:00-03:00",  // ISO format datetime (horário do Brasil, UTC-3)
     "date": "15/02/2024",  // Human-readable date (DD/MM/YYYY)
-    "time": "14:30",  // Human-readable time (HH:MM)
+    "time": "14:30",  // Human-readable time (HH:MM) - horário do Brasil
     "confidence": 0.85,  // Confidence score 0-1
     "extracted_text": "Cliente quer visitar no dia 15/02 às 14:30",
     "notes": "Visita agendada durante atendimento"
@@ -966,9 +972,10 @@ OU, se não detectar intenção de visita:
 }}
 
 IMPORTANTE:
-- Se detectar intenção, o campo "scheduled_at" DEVE estar no formato ISO 8601 (YYYY-MM-DDTHH:MM:SS)
-- Use o fuso horário UTC
-- Se a data/hora mencionada for relativa (ex: "amanhã às 14h"), calcule a data absoluta baseada na data atual
+- Se detectar intenção, o campo "scheduled_at" DEVE estar no formato ISO 8601 com timezone UTC-3 (YYYY-MM-DDTHH:MM:SS-03:00)
+- O horário mencionado pelo cliente é SEMPRE horário do Brasil (UTC-3)
+- Se o cliente diz "14h", isso significa 14:00 no horário do Brasil, não UTC
+- Se a data/hora mencionada for relativa (ex: "amanhã às 14h"), calcule a data absoluta baseada na data atual do Brasil
 - Se apenas parte da informação estiver presente (ex: só data sem hora), use valores padrão razoáveis (ex: 14:00 para hora)"""
 
             try:
@@ -1011,40 +1018,55 @@ IMPORTANTE:
                 
                 try:
                     # Parse ISO format datetime
-                    # Handle both timezone-aware and timezone-naive formats
+                    # IMPORTANTE: Horário mencionado pelo usuário é horário do Brasil (UTC-3)
+                    # A IA deve retornar com timezone -03:00, mas se não tiver, assumimos horário do Brasil
+                    brazil_tz = timezone(timedelta(hours=-3))  # UTC-3 (Brasil)
+                    
                     if scheduled_at_str.endswith('Z'):
+                        # Se termina com Z, assume UTC mas deveria ser Brasil - converter
                         scheduled_at = datetime.fromisoformat(scheduled_at_str.replace('Z', '+00:00'))
-                    elif '+' in scheduled_at_str or scheduled_at_str.count('-') > 2:
-                        # Already has timezone info
+                        # Converter de UTC para horário do Brasil (assumindo que foi erro da IA)
+                        scheduled_at = scheduled_at.replace(tzinfo=timezone.utc).astimezone(brazil_tz)
+                    elif '-03:00' in scheduled_at_str or '+03:00' in scheduled_at_str:
+                        # Já tem timezone do Brasil
                         scheduled_at = datetime.fromisoformat(scheduled_at_str)
+                    elif '+' in scheduled_at_str or (scheduled_at_str.count('-') > 2 and not scheduled_at_str.endswith('-03:00')):
+                        # Tem outro timezone, converter para Brasil
+                        scheduled_at = datetime.fromisoformat(scheduled_at_str)
+                        scheduled_at = scheduled_at.astimezone(brazil_tz)
                     else:
-                        # No timezone, assume UTC
-                        scheduled_at = datetime.fromisoformat(scheduled_at_str + '+00:00')
+                        # Sem timezone - assumir que é horário do Brasil (UTC-3)
+                        scheduled_at = datetime.fromisoformat(scheduled_at_str)
+                        scheduled_at = scheduled_at.replace(tzinfo=brazil_tz)
                     
-                    # Ensure scheduled_at is timezone-aware (UTC)
+                    # Garantir que está no timezone do Brasil
                     if scheduled_at.tzinfo is None:
-                        scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
-                    else:
-                        # Convert to UTC if it has a different timezone
-                        scheduled_at = scheduled_at.astimezone(timezone.utc)
+                        scheduled_at = scheduled_at.replace(tzinfo=brazil_tz)
+                    elif scheduled_at.tzinfo != brazil_tz:
+                        scheduled_at = scheduled_at.astimezone(brazil_tz)
                     
-                    # Validate: date cannot be in the past
-                    if scheduled_at < current_date:
+                    # Converter para UTC para armazenar no banco (padrão)
+                    scheduled_at_utc = scheduled_at.astimezone(timezone.utc)
+                    
+                    # Validate: date cannot be in the past (comparar no timezone do Brasil)
+                    if scheduled_at < current_date_brazil:
                         logger.warning(f"Detected visit date is in the past: {scheduled_at_str}, ignoring")
                         return None
                     
-                    # Validate: hour should be between 08:00 and 20:00 (in UTC, but we'll use the hour as-is)
-                    hour = scheduled_at.hour
-                    if hour < 8 or hour >= 20:
-                        logger.warning(f"Detected visit hour is outside business hours: {hour}, adjusting to 14:00")
+                    # Validate: hour should be between 08:00 and 20:00 (horário do Brasil)
+                    hour_brazil = scheduled_at.hour
+                    if hour_brazil < 8 or hour_brazil >= 20:
+                        logger.warning(f"Detected visit hour is outside business hours: {hour_brazil}, adjusting to 14:00")
                         scheduled_at = scheduled_at.replace(hour=14, minute=0)
+                        scheduled_at_utc = scheduled_at.astimezone(timezone.utc)
                     
-                    # Build response
+                    # Build response - retornar horário em UTC para o frontend converter se necessário
+                    # Mas também retornar date/time formatados no horário do Brasil para exibição
                     visit_info = {
                         "detected": True,
-                        "scheduled_at": scheduled_at.isoformat(),
-                        "date": parsed.get("date", scheduled_at.strftime("%d/%m/%Y")),
-                        "time": parsed.get("time", scheduled_at.strftime("%H:%M")),
+                        "scheduled_at": scheduled_at_utc.isoformat(),  # UTC para armazenar no banco
+                        "date": parsed.get("date", scheduled_at.strftime("%d/%m/%Y")),  # Data no horário do Brasil
+                        "time": parsed.get("time", scheduled_at.strftime("%H:%M")),  # Hora no horário do Brasil
                         "confidence": min(max(parsed.get("confidence", 0.7), 0.0), 1.0),  # Clamp between 0 and 1
                         "extracted_text": parsed.get("extracted_text", ""),
                         "property_id": str(property_id) if property_id else None,
@@ -1651,9 +1673,11 @@ IMPORTANTE:
         ]
         
         scheduled_at = None
-        # Use UTC for timezone-aware datetime
-        from datetime import timezone
-        current_date = datetime.now(timezone.utc)
+        # IMPORTANTE: Horário mencionado pelo usuário é horário do Brasil (UTC-3)
+        from datetime import timezone, timedelta
+        brazil_tz = timezone(timedelta(hours=-3))  # UTC-3 (Brasil)
+        current_date_utc = datetime.now(timezone.utc)
+        current_date_brazil = current_date_utc.astimezone(brazil_tz)
         
         # Try to extract date
         for pattern in date_patterns:
@@ -1663,21 +1687,25 @@ IMPORTANTE:
                     if pattern == r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))?":
                         day = int(match.group(1))
                         month = int(match.group(2))
-                        year = int(match.group(3)) if match.group(3) else current_date.year
-                        if year < current_date.year or (year == current_date.year and (month < current_date.month or (month == current_date.month and day < current_date.day))):
-                            year = current_date.year + 1 if month < current_date.month or (month == current_date.month and day < current_date.day) else current_date.year
-                        scheduled_at = datetime(year, month, day, 14, 0, tzinfo=timezone.utc)  # Default to 14:00 UTC
+                        year = int(match.group(3)) if match.group(3) else current_date_brazil.year
+                        if year < current_date_brazil.year or (year == current_date_brazil.year and (month < current_date_brazil.month or (month == current_date_brazil.month and day < current_date_brazil.day))):
+                            year = current_date_brazil.year + 1 if month < current_date_brazil.month or (month == current_date_brazil.month and day < current_date_brazil.day) else current_date_brazil.year
+                        # Criar em horário do Brasil e depois converter para UTC
+                        scheduled_at = datetime(year, month, day, 14, 0, tzinfo=brazil_tz)  # Default to 14:00 Brasil
+                        scheduled_at = scheduled_at.astimezone(timezone.utc)  # Converter para UTC
                         break
                     elif pattern == r"dia\s+(\d{1,2})":
                         day = int(match.group(1))
-                        month = current_date.month
-                        year = current_date.year
-                        if day < current_date.day:
+                        month = current_date_brazil.month
+                        year = current_date_brazil.year
+                        if day < current_date_brazil.day:
                             month += 1
                             if month > 12:
                                 month = 1
                                 year += 1
-                        scheduled_at = datetime(year, month, day, 14, 0, tzinfo=timezone.utc)
+                        # Criar em horário do Brasil e depois converter para UTC
+                        scheduled_at = datetime(year, month, day, 14, 0, tzinfo=brazil_tz)
+                        scheduled_at = scheduled_at.astimezone(timezone.utc)  # Converter para UTC
                         break
                 except (ValueError, IndexError):
                     continue
@@ -1685,53 +1713,59 @@ IMPORTANTE:
         # If no date found, check for relative dates
         if not scheduled_at:
             if "amanhã" in content_lower or "amanha" in content_lower:
-                scheduled_at = current_date + timedelta(days=1)
-                scheduled_at = scheduled_at.replace(hour=14, minute=0)
+                scheduled_at_brazil = current_date_brazil + timedelta(days=1)
+                scheduled_at_brazil = scheduled_at_brazil.replace(hour=14, minute=0)
+                scheduled_at = scheduled_at_brazil.astimezone(timezone.utc)
             elif "hoje" in content_lower:
-                scheduled_at = current_date.replace(hour=14, minute=0)
-                if scheduled_at < current_date:
-                    scheduled_at = scheduled_at + timedelta(days=1)
+                scheduled_at_brazil = current_date_brazil.replace(hour=14, minute=0)
+                if scheduled_at_brazil < current_date_brazil:
+                    scheduled_at_brazil = scheduled_at_brazil + timedelta(days=1)
+                scheduled_at = scheduled_at_brazil.astimezone(timezone.utc)
             else:
                 # Default to tomorrow if visit intent detected but no date
-                scheduled_at = current_date + timedelta(days=1)
-                scheduled_at = scheduled_at.replace(hour=14, minute=0)
+                scheduled_at_brazil = current_date_brazil + timedelta(days=1)
+                scheduled_at_brazil = scheduled_at_brazil.replace(hour=14, minute=0)
+                scheduled_at = scheduled_at_brazil.astimezone(timezone.utc)
         
-        # Ensure scheduled_at is timezone-aware (UTC)
-        if scheduled_at and scheduled_at.tzinfo is None:
-            scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
-        
-        # Try to extract time
-        for pattern in time_patterns:
-            match = re.search(pattern, content_lower)
-            if match:
-                try:
-                    if pattern == r"(\d{1,2}):(\d{2})":
-                        hour = int(match.group(1))
-                        minute = int(match.group(2))
-                    else:
-                        hour = int(match.group(1))
-                        minute = 0
-                    
-                    if 8 <= hour < 20:
-                        scheduled_at = scheduled_at.replace(hour=hour, minute=minute)
-                    break
-                except (ValueError, IndexError):
-                    continue
-        
-        # Ensure scheduled_at is timezone-aware (UTC) before validation
+        # Try to extract time (horário mencionado é horário do Brasil)
         if scheduled_at:
-            if scheduled_at.tzinfo is None:
-                scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+            # Converter para horário do Brasil para ajustar a hora
+            scheduled_at_brazil = scheduled_at.astimezone(brazil_tz)
             
-            # Validate: date cannot be in the past
-            if scheduled_at >= current_date:
+            for pattern in time_patterns:
+                match = re.search(pattern, content_lower)
+                if match:
+                    try:
+                        if pattern == r"(\d{1,2}):(\d{2})":
+                            hour = int(match.group(1))
+                            minute = int(match.group(2))
+                        else:
+                            hour = int(match.group(1))
+                            minute = 0
+                        
+                        if 8 <= hour < 20:
+                            # Ajustar hora no horário do Brasil
+                            scheduled_at_brazil = scheduled_at_brazil.replace(hour=hour, minute=minute)
+                            # Converter de volta para UTC
+                            scheduled_at = scheduled_at_brazil.astimezone(timezone.utc)
+                        break
+                    except (ValueError, IndexError):
+                        continue
+        
+        # Validate: date cannot be in the past (comparar no timezone do Brasil)
+        if scheduled_at:
+            scheduled_at_brazil = scheduled_at.astimezone(brazil_tz)
+            
+            if scheduled_at_brazil >= current_date_brazil:
+                # Formatar data/hora no horário do Brasil para exibição
+                scheduled_at_brazil = scheduled_at.astimezone(brazil_tz)
                 return {
                     "detected": True,
-                    "scheduled_at": scheduled_at.isoformat(),
-                    "date": scheduled_at.strftime("%d/%m/%Y"),
-                    "time": scheduled_at.strftime("%H:%M"),
+                    "scheduled_at": scheduled_at.isoformat(),  # UTC para armazenar
+                    "date": scheduled_at_brazil.strftime("%d/%m/%Y"),  # Data no horário do Brasil
+                    "time": scheduled_at_brazil.strftime("%H:%M"),  # Hora no horário do Brasil
                     "confidence": 0.6,  # Lower confidence for regex-based detection
-                    "extracted_text": f"Visita detectada para {scheduled_at.strftime('%d/%m/%Y às %H:%M')}",
+                    "extracted_text": f"Visita detectada para {scheduled_at_brazil.strftime('%d/%m/%Y às %H:%M')}",
                     "property_id": str(property_id) if property_id else None,
                     "notes": "Visita agendada durante atendimento (detecção automática)",
                 }

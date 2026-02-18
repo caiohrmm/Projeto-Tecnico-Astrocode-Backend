@@ -121,24 +121,8 @@ def create_attendance(
         
         if visit_info and visit_info.get("detected"):
             detected_visit = DetectedVisitInfo(**visit_info)
-            
-            # If visit was detected and attendance doesn't have scheduled_visit_at yet, create it
-            if detected_visit.scheduled_at and not attendance.scheduled_visit_at:
-                try:
-                    # Parse the scheduled_at from ISO format
-                    scheduled_at = datetime.fromisoformat(detected_visit.scheduled_at.replace('Z', '+00:00'))
-                    
-                    # Update attendance with scheduled_visit_at
-                    attendance.scheduled_visit_at = scheduled_at
-                    db.commit()
-                    db.refresh(attendance)
-                    
-                    # Create visit automatically
-                    attendance_repo._create_visit_from_attendance(attendance)
-                    
-                    logger.info(f"Visit automatically created from detected intent: {detected_visit.scheduled_at}")
-                except Exception as e:
-                    logger.warning(f"Error creating visit from detected intent: {e}", exc_info=True)
+            # ⚠️ IMPORTANT: Visit is NOT created automatically - user must confirm via frontend dialog
+            logger.info(f"Visit intent detected (user confirmation required): {detected_visit.scheduled_at}")
     except Exception as e:
         # Log error but don't fail the request
         logger.warning(f"Error detecting visit intent: {e}", exc_info=True)
@@ -395,24 +379,8 @@ def update_attendance(
             
             if visit_info and visit_info.get("detected"):
                 detected_visit = DetectedVisitInfo(**visit_info)
-                
-                # If visit was detected and attendance doesn't have scheduled_visit_at yet, create it
-                if detected_visit.scheduled_at and not updated_attendance.scheduled_visit_at:
-                    try:
-                        # Parse the scheduled_at from ISO format
-                        scheduled_at = datetime.fromisoformat(detected_visit.scheduled_at.replace('Z', '+00:00'))
-                        
-                        # Update attendance with scheduled_visit_at
-                        updated_attendance.scheduled_visit_at = scheduled_at
-                        db.commit()
-                        db.refresh(updated_attendance)
-                        
-                        # Create visit automatically
-                        attendance_repo._create_visit_from_attendance(updated_attendance)
-                        
-                        logger.info(f"Visit automatically created from detected intent: {detected_visit.scheduled_at}")
-                    except Exception as e:
-                        logger.warning(f"Error creating visit from detected intent: {e}", exc_info=True)
+                # ⚠️ IMPORTANT: Visit is NOT created automatically - user must confirm via frontend dialog
+                logger.info(f"Visit intent detected (user confirmation required): {detected_visit.scheduled_at}")
         except Exception as e:
             # Log error but don't fail the request
             logger.warning(f"Error detecting visit intent: {e}", exc_info=True)
