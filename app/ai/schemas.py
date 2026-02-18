@@ -103,6 +103,7 @@ class ChatRequest(BaseModel):
 
     message: str = Field(..., min_length=1, max_length=2000, description="User's question or message")
     context: ChatContext | None = Field(None, description="Optional context IDs to load data from database")
+    include_dashboard: bool = Field(False, description="Include dashboard metrics in context (for gestor on dashboard page)")
 
 
 class ChatResponse(BaseModel):

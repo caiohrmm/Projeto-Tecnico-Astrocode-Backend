@@ -36,6 +36,7 @@ class ChatService:
         client_id: uuid.UUID | None = None,
         property_id: uuid.UUID | None = None,
         attendance_id: uuid.UUID | None = None,
+        include_dashboard: bool = False,
     ) -> dict[str, Any]:
         """
         Load context data from database based on provided IDs.
@@ -44,6 +45,7 @@ class ChatService:
             client_id: Optional client ID
             property_id: Optional property ID
             attendance_id: Optional attendance ID
+            include_dashboard: If True, load dashboard metrics for gestor interpretation
         
         Returns:
             Dictionary with loaded context data
@@ -55,6 +57,7 @@ class ChatService:
             "client_data": None,
             "property_data": None,
             "attendance_data": None,
+            "dashboard_data": None,
         }
 
         # Load client data
@@ -113,6 +116,14 @@ class ChatService:
                 "raw_content": attendance.raw_content,
             }
 
+        # Load dashboard metrics when requested (e.g. from dashboard page)
+        if include_dashboard:
+            from app.dashboard.service import get_dashboard_context_for_chat
+            try:
+                context["dashboard_data"] = get_dashboard_context_for_chat(self.db)
+            except Exception as e:
+                logger.warning(f"Could not load dashboard context: {e}")
+
         return context
 
     def get_response(
@@ -137,6 +148,7 @@ class ChatService:
                 client_data=context_data.get("client_data"),
                 property_data=context_data.get("property_data"),
                 attendance_data=context_data.get("attendance_data"),
+                dashboard_data=context_data.get("dashboard_data"),
             )
 
         # Call Gemini API

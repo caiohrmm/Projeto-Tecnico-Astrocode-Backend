@@ -90,6 +90,9 @@ Quando contexto do sistema for fornecido, você receberá informações sobre:
 - Clientes (nomes, contatos, interesses, status)
 - Propriedades (endereços, preços, tipos, status)
 - Atendimentos (interações, notas, datas)
+- DASHBOARD EXECUTIVA (quando o gestor estiver na dashboard): métricas consolidadas do negócio - total de clientes, vendas, taxa de conversão, funil, desempenho de corretores, tendências mensais, oportunidades, clientes em risco, leads de alto valor
+
+Para contexto de DASHBOARD: o gestor precisa de interpretação e insights. Responda de forma estruturada, destaque os pontos mais relevantes, sugira ações prioritárias, compare tendências e identifique o que merece atenção imediata. Seja conciso mas completo.
 
 Use o contexto quando disponível para responder sobre dados específicos do sistema. Use seu conhecimento geral para responder perguntas sobre o mercado imobiliário brasileiro."""
 
@@ -113,6 +116,7 @@ def build_context_prompt(
     client_data: dict | None = None,
     property_data: dict | None = None,
     attendance_data: dict | None = None,
+    dashboard_data: dict | None = None,
 ) -> str:
     """
     Build context string from database data with ENUM translations.
@@ -121,6 +125,7 @@ def build_context_prompt(
         client_data: Client information dictionary
         property_data: Property information dictionary
         attendance_data: Attendance information dictionary
+        dashboard_data: Dashboard metrics dictionary (clientes, vendas, funil, etc.)
     
     Returns:
         Formatted context string for the AI (in Portuguese)
@@ -176,6 +181,66 @@ def build_context_prompt(
         context_parts.append(f"Status: {translate_enum(attendance_data.get('status'))}")
         if attendance_data.get('raw_content'):
             context_parts.append(f"Conteúdo: {attendance_data.get('raw_content')}")
+        context_parts.append("")
+    
+    if dashboard_data:
+        context_parts.append("=== DADOS DA DASHBOARD EXECUTIVA (VISÃO GESTOR) ===")
+        context_parts.append("")
+        context_parts.append("MÉTRICAS GERAIS:")
+        context_parts.append(f"- Total de clientes: {dashboard_data.get('total_clients', 0)}")
+        context_parts.append(f"- Leads ativos: {dashboard_data.get('active_leads', 0)}")
+        context_parts.append(f"- Clientes ganhos (WON): {dashboard_data.get('won_clients', 0)}")
+        context_parts.append(f"- Clientes perdidos (LOST): {dashboard_data.get('lost_clients', 0)}")
+        context_parts.append(f"- Lead score médio: {dashboard_data.get('avg_lead_score', 0)}")
+        context_parts.append("")
+        context_parts.append("VENDAS:")
+        context_parts.append(f"- Vendas concluídas: {dashboard_data.get('sales_count', 0)}")
+        context_parts.append(f"- Valor total vendido: R$ {dashboard_data.get('sales_total_value', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        context_parts.append(f"- Comissões: R$ {dashboard_data.get('sales_commission', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        context_parts.append(f"- Taxa de conversão: {dashboard_data.get('conversion_rate', 0)}%")
+        context_parts.append("")
+        context_parts.append("ATIVIDADE:")
+        context_parts.append(f"- Total de atendimentos: {dashboard_data.get('total_attendances', 0)}")
+        context_parts.append(f"- Total de visitas: {dashboard_data.get('total_visits', 0)}")
+        context_parts.append(f"- Visitas próximas agendadas: {dashboard_data.get('upcoming_visits', 0)}")
+        context_parts.append(f"- Imóveis totais: {dashboard_data.get('total_properties', 0)}")
+        context_parts.append(f"- Imóveis disponíveis: {dashboard_data.get('available_properties', 0)}")
+        context_parts.append("")
+        if dashboard_data.get('funnel_data'):
+            context_parts.append("FUNIL DE VENDAS:")
+            for stage in dashboard_data['funnel_data']:
+                context_parts.append(f"  - {stage.get('stage', 'N/A')}: {stage.get('count', 0)} clientes ({stage.get('percentage', 0)}%)")
+            context_parts.append("")
+        if dashboard_data.get('top_opportunities'):
+            context_parts.append("TOP OPORTUNIDADES (leads com score >= 70):")
+            for opp in dashboard_data['top_opportunities'][:5]:
+                context_parts.append(f"  - {opp.get('name', 'N/A')} (score: {opp.get('score', 0)})")
+            context_parts.append("")
+        if dashboard_data.get('at_risk_clients'):
+            context_parts.append("CLIENTES EM RISCO (alta urgência, sem contato há 7+ dias):")
+            for c in dashboard_data['at_risk_clients'][:5]:
+                context_parts.append(f"  - {c.get('name', 'N/A')} (urgência: {c.get('urgency', 'N/A')})")
+            context_parts.append("")
+        if dashboard_data.get('high_value_leads'):
+            context_parts.append("LEADS DE ALTO VALOR (orçamento >= R$ 500k):")
+            for c in dashboard_data['high_value_leads'][:5]:
+                budget = c.get('budget_max', 0)
+                budget_str = f"R$ {budget:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if budget else "N/A"
+                context_parts.append(f"  - {c.get('name', 'N/A')} (orçamento máx: {budget_str})")
+            context_parts.append("")
+        if dashboard_data.get('broker_performance'):
+            context_parts.append("DESEMPENHO DOS CORRETORES (por receita):")
+            for b in dashboard_data['broker_performance'][:5]:
+                rev = b.get('revenue', 0)
+                rev_str = f"R$ {rev:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if rev else "0"
+                context_parts.append(f"  - {b.get('name', 'N/A')}: {b.get('total_sales', 0)} vendas, {rev_str}, conversão {b.get('conversion_rate', 0)}%")
+            context_parts.append("")
+        if dashboard_data.get('monthly_trends'):
+            context_parts.append("TENDÊNCIAS (últimos 6 meses):")
+            for t in dashboard_data['monthly_trends']:
+                rev = t.get('revenue', 0)
+                rev_str = f"R$ {rev:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if rev else "0"
+                context_parts.append(f"  - {t.get('month', 'N/A')}: {t.get('clients', 0)} clientes, {t.get('sales', 0)} vendas, {t.get('losses', 0)} perdas, receita {rev_str}")
         context_parts.append("")
     
     if not context_parts:

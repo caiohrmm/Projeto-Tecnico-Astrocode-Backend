@@ -68,13 +68,14 @@ async def chat(
     try:
         chat_service = ChatService(db)
         
-        # Load context data if IDs provided (synchronous DB operations are fine)
+        # Load context data if IDs provided or dashboard requested
         context_data = None
-        if request.context:
+        if request.context or request.include_dashboard:
             context_data = chat_service.load_context(
-                client_id=request.context.client_id,
-                property_id=request.context.property_id,
-                attendance_id=request.context.attendance_id,
+                client_id=request.context.client_id if request.context else None,
+                property_id=request.context.property_id if request.context else None,
+                attendance_id=request.context.attendance_id if request.context else None,
+                include_dashboard=request.include_dashboard,
             )
         
         # Run Gemini API call in thread pool to avoid blocking event loop
