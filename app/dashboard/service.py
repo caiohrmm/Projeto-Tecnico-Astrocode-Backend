@@ -49,15 +49,15 @@ def get_dashboard_context_for_chat(db: Session) -> dict[str, Any]:
     # Loss stats
     losses = list(db.scalars(select(ClientLoss)).all())
 
-    # Conversion & loss rates
-    conversion_rate = round((won_clients / total_clients) * 100, 2) if total_clients > 0 else 0
-    loss_rate = round((lost_clients / total_clients) * 100, 2) if total_clients > 0 else 0
-
-    # Activity
+    # Activity (needed for conversion rate)
     attendances = list(db.scalars(select(Attendance)).all())
     visits = list(db.scalars(select(Visit)).all())
     total_attendances = len(attendances)
     total_visits = len(visits)
+
+    # Conversion rate = vendas concluídas / total de atendimentos
+    conversion_rate = round((len(completed_sales) / total_attendances) * 100, 2) if total_attendances > 0 else 0
+    loss_rate = round((lost_clients / total_clients) * 100, 2) if total_clients > 0 else 0
     upcoming_visits = len([
         v for v in visits
         if v.scheduled_at and v.scheduled_at >= now
