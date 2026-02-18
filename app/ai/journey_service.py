@@ -475,12 +475,18 @@ Por favor, forneça:
 1. **RESUMO DA JORNADA**: Descreva em 2-3 frases o perfil e momento atual do cliente.
 
 2. **PROBABILIDADE DE CONVERSÃO**: Estime de 0-100% a chance de fechar negócio e explique brevemente.
+   - Se a intenção mais recente for SALE_COMPLETED: probabilidade 100%, negócio já fechado.
+   - Se for LOSS_REGISTERED: probabilidade baixa, cliente desistiu.
 
 3. **PONTOS DE ATENÇÃO**: Liste 2-3 pontos críticos que precisam de atenção.
 
 4. **PRÓXIMOS PASSOS RECOMENDADOS**: Liste 3 ações específicas e prioritárias.
+   - CRÍTICO: Se intenção = SALE_COMPLETED, NÃO sugira "agendar visita" ou prospecção. Sugira pós-venda: documentação, escritura, satisfação, indicações.
+   - Se intenção = LOSS_REGISTERED, sugira reengajamento futuro, manter relacionamento, possíveis novas oportunidades.
 
 5. **ESTRATÉGIA DE ABORDAGEM**: Sugira a melhor forma de abordar este cliente no próximo contato.
+   - Para SALE_COMPLETED: foco em pós-venda e indicações.
+   - Para LOSS_REGISTERED: foco em manter porta aberta para o futuro.
 
 Seja específico e objetivo. Respostas em português brasileiro."""
 

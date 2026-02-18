@@ -46,6 +46,8 @@ class DetectedIntent(str, enum.Enum):
     DOCUMENTATION_REQUEST = "DOCUMENTATION_REQUEST"
     GENERAL_INQUIRY = "GENERAL_INQUIRY"
     COMPLAINT = "COMPLAINT"
+    SALE_COMPLETED = "SALE_COMPLETED"  # Venda ou aluguel concretizado
+    LOSS_REGISTERED = "LOSS_REGISTERED"  # Perda registrada / cliente desistiu
 
 
 class AISummary(Base):

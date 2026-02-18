@@ -700,32 +700,44 @@ class AttendanceRepository:
                             has_recent_sale = True
                             break
                 
-                # If attendance is LOST, don't generate next steps or generate follow-up steps
-                if attendance.status == AttendanceStatus.LOST:
+                # Check if AI detected sale or loss from content (even before sale is registered)
+                intent_is_sale = (
+                    ai_summary.detected_intent
+                    and getattr(ai_summary.detected_intent, "value", str(ai_summary.detected_intent)) == "SALE_COMPLETED"
+                )
+                intent_is_loss = (
+                    ai_summary.detected_intent
+                    and getattr(ai_summary.detected_intent, "value", str(ai_summary.detected_intent)) == "LOSS_REGISTERED"
+                )
+
+                # If attendance is LOST or AI detected loss → loss follow-up steps
+                if attendance.status == AttendanceStatus.LOST or intent_is_loss:
                     next_steps.append("Acompanhar cliente para possíveis novas oportunidades")
                     next_steps.append("Manter relacionamento para futuras necessidades")
-                # If attendance is COMPLETED with a sale, generate post-sale steps
-                elif attendance.status == AttendanceStatus.COMPLETED and has_recent_sale:
+                # If COMPLETED with sale (registered or detected in content) → post-sale steps
+                elif attendance.status == AttendanceStatus.COMPLETED and (has_recent_sale or intent_is_sale):
+                    next_steps.append("Venda/Aluguel concretizado - registrar documentação")
                     next_steps.append("Enviar documentação final da venda")
                     next_steps.append("Acompanhar processo de escritura/registro")
                     next_steps.append("Verificar satisfação do cliente após a compra")
                     next_steps.append("Manter relacionamento para indicações futuras")
                 # If attendance is COMPLETED but no sale, generate normal steps (rare case)
                 elif attendance.status == AttendanceStatus.COMPLETED:
-                    # Only generate generic follow-up steps, not sales-oriented ones
                     next_steps.append("Acompanhar cliente para próximos passos")
                     next_steps.append("Manter relacionamento")
                 # If attendance is still ACTIVE (shouldn't happen in _process_completed_attendance, but safety)
                 else:
                     # Generate next steps from AI analysis (original logic)
-                    if ai_summary.detected_intent:
+                    # SALE_COMPLETED and LOSS_REGISTERED are not added here - handled above
+                    intent_val = ai_summary.detected_intent.value if ai_summary.detected_intent else None
+                    if intent_val and intent_val not in ("SALE_COMPLETED", "LOSS_REGISTERED"):
                         intent_labels = {
                             "PROPERTY_SEARCH": "Buscar propriedades similares",
                             "SCHEDULE_VISIT": "Agendar visita",
                             "PRICE_NEGOTIATION": "Negociar preço",
                             "INFORMATION_REQUEST": "Enviar informações solicitadas",
                         }
-                        intent_label = intent_labels.get(ai_summary.detected_intent.value, "Acompanhar cliente")
+                        intent_label = intent_labels.get(intent_val, "Acompanhar cliente")
                         next_steps.append(intent_label)
 
                     if ai_summary.interest_type_detected:
@@ -1057,25 +1069,37 @@ class AttendanceRepository:
                             has_recent_sale = True
                             break
                 
-                # If attendance is LOST, don't generate next steps or generate follow-up steps
-                if attendance.status == AttendanceStatus.LOST:
+                # Check if AI detected sale or loss from content
+                intent_val = ai_summary.detected_intent.value if ai_summary.detected_intent else None
+                intent_is_sale = intent_val == "SALE_COMPLETED"
+                intent_is_loss = intent_val == "LOSS_REGISTERED"
+
+                # If attendance is LOST or AI detected loss → loss follow-up steps
+                if attendance.status == AttendanceStatus.LOST or intent_is_loss:
                     next_steps.append("Acompanhar cliente para possíveis novas oportunidades")
                     next_steps.append("Manter relacionamento para futuras necessidades")
-                # If attendance is COMPLETED with a sale, generate post-sale steps
-                elif attendance.status == AttendanceStatus.COMPLETED and has_recent_sale:
+                # If COMPLETED with sale (registered or detected in content) → post-sale steps
+                elif attendance.status == AttendanceStatus.COMPLETED and (has_recent_sale or intent_is_sale):
+                    next_steps.append("Venda/Aluguel concretizado - registrar documentação")
                     next_steps.append("Enviar documentação final da venda")
                     next_steps.append("Acompanhar processo de escritura/registro")
                     next_steps.append("Verificar satisfação do cliente após a compra")
                     next_steps.append("Manter relacionamento para indicações futuras")
-                # If attendance is COMPLETED but no sale, generate normal steps (rare case)
+                # If attendance is COMPLETED but no sale
                 elif attendance.status == AttendanceStatus.COMPLETED:
-                    # Only generate generic follow-up steps, not sales-oriented ones
                     next_steps.append("Acompanhar cliente para próximos passos")
                     next_steps.append("Manter relacionamento")
+                # If ACTIVE but intent indicates sale → suggest registering sale
+                elif intent_is_sale:
+                    next_steps.append("Registrar venda/aluguel no sistema")
+                    next_steps.append("Enviar documentação após registro")
+                # If ACTIVE but intent indicates loss → loss follow-up
+                elif intent_is_loss:
+                    next_steps.append("Registrar perda no sistema")
+                    next_steps.append("Manter relacionamento para futuras necessidades")
                 # If attendance is still ACTIVE, generate regular next steps
                 else:
-                    # Generate next steps from AI analysis (original logic)
-                    if ai_summary.detected_intent:
+                    if intent_val and intent_val not in ("SALE_COMPLETED", "LOSS_REGISTERED"):
                         intent_labels = {
                             "PROPERTY_SEARCH": "Buscar propriedades compatíveis com o perfil",
                             "SCHEDULE_VISIT": "Agendar visita para conhecer imóveis",
@@ -1085,8 +1109,7 @@ class AttendanceRepository:
                             "COMPLAINT": "Resolver reclamação apresentada",
                             "GENERAL_INQUIRY": "Acompanhar interesse do cliente",
                         }
-                        intent_value = ai_summary.detected_intent.value if hasattr(ai_summary.detected_intent, 'value') else str(ai_summary.detected_intent)
-                        intent_label = intent_labels.get(intent_value, "Acompanhar cliente")
+                        intent_label = intent_labels.get(intent_val, "Acompanhar cliente")
                         next_steps.append(intent_label)
                     
                     if ai_summary.interest_type_detected:

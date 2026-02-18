@@ -247,6 +247,7 @@ REGRAS IMPORTANTES:
 - Seja específico sobre valores, localizações e preferências mencionadas
 - Máximo de 200 palavras
 - IMPORTANTE: Se um nível de urgência foi detectado acima, use EXATAMENTE esse nível ao mencionar urgência no resumo
+- CRÍTICO: Se o conteúdo indicar que a VENDA/ALUGUEL FOI CONCLUÍDA (ex: "fechou a compra", "venda concretizada", "comprou o imóvel") ou que houve PERDA (cliente desistiu), destaque isso claramente no resumo. Nesses casos NÃO sugira agendar visita ou ações de prospecção - a negociação já foi finalizada
 
 CONTEXTO TEMPORAL:
 - Quando mencionar datas, compare com a data atual ({current_date})
@@ -315,8 +316,30 @@ RESUMO:"""
 
     @staticmethod
     def _detect_intent(raw_content: str) -> DetectedIntent | None:
-        """Detect intent from raw content."""
+        """Detect intent from raw content.
+        IMPORTANT: Check sale/loss completion FIRST - these override all other intents.
+        """
         content_lower = raw_content.lower()
+
+        # Sale completed: venda/aluguel concretizado (overrides everything)
+        sale_patterns = [
+            "fechou a compra", "fechou a venda", "fechou o negócio", "fechou negócio",
+            "fechando o negócio", "fechando a compra", "fechando a venda",
+            "comprou o imóvel", "comprou o apartamento", "comprou a casa",
+            "venda concretizada", "venda fechada", "negócio fechado",
+            "alugou", "locação fechada", "locação concretizada",
+            "concretizou a compra", "concretizou a venda", "concluiu a compra",
+        ]
+        if any(p in content_lower for p in sale_patterns):
+            return DetectedIntent.SALE_COMPLETED
+
+        # Loss: cliente desistiu / perda
+        loss_patterns = [
+            "desistiu", "perdeu o cliente", "cliente desistiu", "não quer mais",
+            "desistiu da compra", "desistiu do negócio", "perda registrada",
+        ]
+        if any(p in content_lower for p in loss_patterns):
+            return DetectedIntent.LOSS_REGISTERED
 
         if any(word in content_lower for word in ["visita", "agendar", "ver", "conhecer"]):
             return DetectedIntent.SCHEDULE_VISIT
@@ -425,6 +448,7 @@ RESUMO:"""
         Detect urgency level from raw content.
         
         Priority order:
+        0. SALE/LOSS - if sale completed or loss registered, urgency is LOW (no action needed)
         1. IMMEDIATE - explicit urgent/immediate keywords
         2. HIGH - short-term timelines (days, next week)
         3. MEDIUM - medium-term timelines (weeks, months up to 6)
@@ -432,6 +456,17 @@ RESUMO:"""
         """
         import re
         content_lower = raw_content.lower()
+
+        # Sale or loss completed → no urgency (LOW)
+        sale_loss_patterns = [
+            "fechou a compra", "fechou a venda", "fechou o negócio", "fechou negócio",
+            "fechando o negócio", "fechando a compra", "comprou o imóvel",
+            "venda concretizada", "venda fechada", "negócio fechado",
+            "alugou", "locação fechada", "concretizou a compra", "concluiu a compra",
+            "desistiu", "perdeu o cliente", "cliente desistiu", "perda registrada",
+        ]
+        if any(p in content_lower for p in sale_loss_patterns):
+            return UrgencyLevel.LOW
 
         # Immediate urgency indicators
         if any(word in content_lower for word in ["imediato", "urgente", "hoje", "agora", "rápido", "já", "imediatamente", "asap"]):
@@ -525,7 +560,11 @@ RESUMO:"""
             score += 15
 
         # Intent
-        if detected_intent == DetectedIntent.SCHEDULE_VISIT:
+        if detected_intent == DetectedIntent.SALE_COMPLETED:
+            return 100  # Conversion = max score
+        elif detected_intent == DetectedIntent.LOSS_REGISTERED:
+            return min(score, 25)  # Loss = low score
+        elif detected_intent == DetectedIntent.SCHEDULE_VISIT:
             score += 10
         elif detected_intent == DetectedIntent.PRICE_NEGOTIATION:
             score += 8
