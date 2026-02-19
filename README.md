@@ -15,85 +15,176 @@
 
 ## 📋 Índice
 
-- [Visão Geral](#-visão-geral)
-- [Arquitetura e Tecnologias](#-arquitetura-e-tecnologias)
-- [Funcionalidades da IA](#-funcionalidades-da-inteligência-artificial)
-- [Fluxo Completo do Sistema](#-fluxo-completo-do-sistema)
-- [Estrutura do Projeto](#-estrutura-do-projeto)
-- [Instalação e Configuração](#-instalação-e-configuração)
-- [API Endpoints](#-api-endpoints)
-- [Funcionalidades Principais](#-funcionalidades-principais)
-- [Segurança e Autenticação](#-segurança-e-autenticação)
-- [Banco de Dados](#-banco-de-dados)
+- [1. Visão geral](#1-visão-geral)
+- [2. Arquitetura e tecnologias](#2-arquitetura-e-tecnologias)
+- [3. Estrutura do projeto e instalação](#3-estrutura-do-projeto-e-instalação)
+- [4. Modelos e banco de dados](#4-modelos-e-banco-de-dados)
+- [5. Fluxo central: cliente e ciclos de atendimento](#5-fluxo-central-cliente-e-ciclos-de-atendimento)
+- [6. Visitas, vendas e perdas (vinculadas ao cliente)](#6-visitas-vendas-e-perdas-vinculadas-ao-cliente)
+- [7. Funcionalidades da IA](#7-funcionalidades-da-ia)
+- [8. API (endpoints)](#8-api-endpoints)
+- [9. Segurança e autenticação](#9-segurança-e-autenticação)
+- [10. Destaques técnicos e proteções](#10-destaques-técnicos-e-proteções)
+- [Testes](#-testes)
+- [Documentação adicional](#-documentação-adicional)
+- [Próximos passos](#-próximos-passos--melhorias-futuras)
+- [Licença](#-licença)
 
 ---
 
-## 🎯 Visão Geral
+## 1. Visão geral
 
-Sistema completo de CRM (Customer Relationship Management) desenvolvido especificamente para imobiliárias, com integração profunda de Inteligência Artificial para automatizar e otimizar processos de vendas, atendimento e gestão de clientes.
+Sistema de **CRM para imobiliárias** com **IA (Google Gemini)** integrada. Toda a jornada do cliente é centralizada no **cliente**: atendimentos (ciclos), visitas, vendas e perdas ficam vinculados a ele e ao **ciclo de atendimento** ativo.
 
-### Objetivos do Sistema
+### Objetivos do sistema
 
-- **Automatizar** a análise de conversas e interações com clientes
-- **Otimizar** a priorização de leads baseada em inteligência artificial
-- **Acelerar** o processo de matching entre clientes e imóveis
-- **Aumentar** a taxa de conversão através de insights acionáveis
-- **Rastrear** todo o ciclo de vida do cliente desde o primeiro contato até a venda/perda
+- **Automatizar** a análise de conversas (resumo, intenção, urgência, próximos passos).
+- **Atualizar o perfil do cliente** apenas com base no **ciclo de atendimento ativo** (ACTIVE), evitando misturar contextos antigos.
+- **Rastrear** o ciclo desde o primeiro contato até **venda** ou **perda**, com visitas e imóvel vinculados.
+- **Garantir** um único ciclo ACTIVE por cliente; fechamento (concluído/perda/venda) aplica lead score de fechamento no cliente.
 
 ---
 
-## 🏗️ Arquitetura e Tecnologias
+## 2. Arquitetura e tecnologias
 
-### Stack Tecnológico
+### Stack
 
-#### Backend
-- **Python 3.11+** - Linguagem principal
-- **FastAPI** - Framework web moderno e de alta performance
-- **SQLAlchemy 2.0** - ORM para gerenciamento de banco de dados
-- **PostgreSQL** - Banco de dados relacional robusto
-- **Alembic** - Migrações de banco de dados
-- **Pydantic** - Validação de dados e schemas
-- **Google Gemini AI** - Motor de inteligência artificial
+| Camada | Tecnologia |
+|--------|------------|
+| **API** | Python 3.11+, FastAPI, Uvicorn |
+| **Banco** | PostgreSQL (SQLAlchemy 2.0, Alembic) |
+| **IA** | Google Gemini (Google Generative AI) |
+| **Validação** | Pydantic |
+| **Auth** | JWT, bcrypt, OAuth 2.0 (Google), RBAC |
+| **Integrações** | Cloudinary (imagens de imóveis) |
 
-#### Autenticação e Segurança
-- **JWT (JSON Web Tokens)** - Autenticação stateless
-- **bcrypt** - Hash de senhas
-- **OAuth 2.0** - Login com Google
-- **RBAC (Role-Based Access Control)** - Controle de acesso baseado em roles
-
-#### Integrações
-- **Cloudinary** - Gerenciamento de imagens de imóveis
-- **Google Generative AI** - Processamento de linguagem natural
-
-### Arquitetura do Sistema
+### Diagrama
 
 ```
 ┌─────────────────┐
-│   Frontend      │  Vue.js + Vuetify
-│   (Vue.js)      │
+│   Frontend      │  Vue 3 + Vite + Vuetify
 └────────┬────────┘
          │ HTTP/REST
-         │
 ┌────────▼────────┐
 │   Backend       │  FastAPI
-│   (Python)      │
 └────────┬────────┘
          │
     ┌────┴────┬──────────┬──────────┐
     │         │          │          │
 ┌───▼───┐ ┌──▼───┐ ┌───▼───┐ ┌───▼───┐
 │PostgreSQL│ │Gemini AI│ │Cloudinary│ │ OAuth  │
-│Database │ │   API   │ │  Images  │ │ Google │
+│(ex: Neon)│ │         │ │          │ │ Google │
 └────────┘ └─────────┘ └──────────┘ └────────┘
 ```
 
 ---
 
-## 🤖 Funcionalidades da Inteligência Artificial
+## 3. Estrutura do projeto e instalação
 
-O sistema utiliza **Google Gemini AI** para processar e analisar todas as interações com clientes, fornecendo insights acionáveis em tempo real.
+### Estrutura de pastas (principal)
 
-### 1. Atualização Automática de Perfil do Cliente
+```
+app/
+├── ai/                    # IA: resumos, chat, jornada, prompts
+├── attendances/            # Ciclos de atendimento (repository, routes, objective_service)
+├── clients/                # Clientes, state_derivation, timeline, score
+├── properties/             # Imóveis
+├── visits/                 # Visitas (vinculadas a atendimento/cliente)
+├── sales/                  # Vendas (fecham ciclo, aplicam lead score)
+├── losses/                 # Perdas (fecham ciclo, aplicam lead score)
+├── users/                  # Usuários e roles
+├── auth/                   # JWT, OAuth Google
+├── config/                 # Settings
+├── db/                     # Sessão e base SQLAlchemy
+└── main.py
+alembic/                    # Migrações
+```
+
+### Instalação (resumo)
+
+1. **Pré-requisitos:** Python 3.11+, PostgreSQL (ex.: Neon), chave Google Gemini.
+2. **Clone e ambiente:**
+   ```bash
+   git clone <repo> && cd Projeto-Tecnico-Astrocode-Backend
+   python -m venv .venv && source .venv/bin/activate   # ou .venv\Scripts\activate no Windows
+   pip install -e .
+   ```
+3. **Variáveis de ambiente** (`.env` na raiz):
+   - `DATABASE_URL` – connection string PostgreSQL (ex.: Neon).
+   - `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_EXPIRATION_HOURS`.
+   - `GEMINI_API_KEY`.
+   - Opcional: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `FRONTEND_URL`.
+4. **Banco:** `alembic upgrade head`
+5. **Primeiro usuário (gestor):** `python scripts/create_manager.py --email ... --password ... --name "Admin"`
+6. **Rodar:** `uvicorn app.main:app --reload --port 8000`  
+   - API: http://localhost:8000  
+   - Docs: http://localhost:8000/docs  
+
+---
+
+## 4. Modelos e banco de dados
+
+### Entidades principais e relações
+
+- **Client** – Núcleo: contato, perfil derivado pela IA (interest_type, property_type, city, budget, urgency, lead_score, status). Um cliente tem vários **Attendance**, **Visit**, **Sale**, **ClientLoss**.
+- **Attendance** – Ciclo de atendimento: `client_id`, `agent_id`, `property_id` (opcional), `objective`, `raw_content` (conversas acumuladas), `status` (ACTIVE | COMPLETED | LOST | ABANDONED). Campos preenchidos pela IA: `ai_summary`, `ai_next_steps`. **Apenas um ACTIVE por cliente**; ciclo não é editável (exceto `property_id`).
+- **Visit** – Visita agendada: vinculada a **attendance** e opcionalmente a **property**; status (AGENDADA, REALIZADA, CANCELADA, etc.).
+- **Sale** – Venda: vinculada a cliente, imóvel, atendimento (fecha o ciclo ACTIVE e aplica lead score de fechamento no cliente).
+- **ClientLoss** – Perda: vinculada a cliente e atendimento (fecha o ciclo ACTIVE e aplica lead score).
+- **Property** – Imóvel: dados cadastrais, fotos (Cloudinary), preços.
+- **AISummary** – Por atendimento: resumo, intenção, sentimento, urgência, key_points (incl. `property_purchased`, `property_lost` em fechamento), propriedades recomendadas.
+
+### Migrações
+
+```bash
+alembic revision --autogenerate -m "descrição"
+alembic upgrade head
+```
+
+---
+
+## 5. Fluxo central: cliente e ciclos de atendimento
+
+### Regras de negócio
+
+- **Um cliente tem no máximo um atendimento ACTIVE.** Ao criar um novo atendimento, o backend verifica objetivo e ciclo ativo: ou anexa a conversa ao ciclo existente (acumulando `raw_content`) ou fecha o ciclo anterior e abre um novo.
+- **Atendimento não é editável** após a criação (a API aceita apenas atualização de **property_id** para vincular/alterar imóvel). Cliente, agente, objetivo e conteúdo não são alterados; para incluir mais conversa usa-se **adicionar conversa** (POST que acumula conteúdo no ciclo ACTIVE).
+- **Perfil do cliente** é atualizado **somente** a partir de sinais do ciclo **ACTIVE** (State Derivation). Quando o ciclo é fechado (COMPLETED, LOST ou por venda/perda), o perfil não é mais atualizado por aquele ciclo; ao fechar, aplica-se o **lead score de fechamento** no cliente (ex.: 100 em venda).
+
+### Fluxo resumido
+
+1. **Criar cliente** → valores iniciais (ex.: status NEW_LEAD, lead_score 30, urgência MEDIUM).
+2. **Criar atendimento** (ou adicionar conversa ao ACTIVE) → IA gera resumo, intenção, urgência, próximos passos; atualiza perfil do cliente com base só no ACTIVE; pode detectar intenção de visita ou menção a imóvel.
+3. **Vincular imóvel** → único campo editável do atendimento (PUT com `property_id`).
+4. **Fechar ciclo** → por **Registrar venda**, **Registrar perda** ou **Marcar como concluído** (status COMPLETED). Venda/perda aplicam lead score de fechamento no cliente e preenchem key_points (property_purchased / property_lost) no resumo da IA.
+
+---
+
+## 6. Visitas, vendas e perdas (vinculadas ao cliente)
+
+### Visitas
+
+- Criadas manualmente ou a partir da **detecção de intenção de visita** pela IA (data/hora, imóvel sugerido). Ficam vinculadas a um **atendimento** e opcionalmente a um **imóvel**. O contexto do atendimento (resumo IA, visitas) é usado no chat e na jornada.
+
+### Vendas
+
+- **Registrar venda** associa cliente, imóvel, valor, corretor etc. O backend **fecha o atendimento ACTIVE** do cliente (status COMPLETED), aplica o **lead score de fechamento** no cliente (ex.: 100) e atualiza o resumo da IA com **key_points.property_purchased** (descrição do imóvel). Assim a IA e o frontend sabem qual imóvel foi comprado.
+
+### Perdas
+
+- **Registrar perda** associa cliente, motivo, feedback etc. O backend **fecha o atendimento ACTIVE** (status LOST), aplica o lead score de fechamento e atualiza o resumo da IA com **key_points.property_lost** quando houver imóvel vinculado ao ciclo.
+
+### Timeline do cliente
+
+- Eventos automáticos: criação de cliente, atendimentos (criado/concluído), visitas, imóvel selecionado/confirmado, vendas, perdas. Tudo vinculado ao **cliente** para histórico e contexto da IA.
+
+---
+
+## 7. Funcionalidades da IA
+
+O sistema usa **Google Gemini** para análise de texto, resumos e derivação de estado. Principais pontos:
+
+### 7.1. Atualização automática de perfil do cliente
 
 **Quando:** Automaticamente a cada atendimento registrado ou atualizado
 
@@ -112,7 +203,7 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 
 **Implementação:** `app/clients/state_derivation_service.py` e `app/attendances/repository.py`
 
-### 2. Análise de Atendimentos (AI Summary)
+### 7.2. Análise de atendimentos (AI Summary)
 
 **Quando:** A cada novo atendimento registrado ou atualizado
 
@@ -131,9 +222,9 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 - **Sugere Lead Score** atualizado baseado na conversa
 - **Recomenda propriedades** que combinam com o perfil do cliente
 
-**Implementação:** `app/ai/service.py` - `AISummaryService`
+**Implementação:** `app/ai/service.py` – `AISummaryService`. Inclui intenções **SALE_COMPLETED** e **LOSS_REGISTERED** quando a conversa indica fechamento.
 
-### 3. Detecção Automática de Visitas
+### 7.3. Detecção automática de visitas
 
 **Quando:** Durante o processamento de um atendimento
 
@@ -152,9 +243,9 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 → Detecta: scheduled_at=2026-02-15 14:00, property_id=<id_do_apartamento>
 ```
 
-**Implementação:** `app/ai/service.py` - `detect_visit_intent()`
+**Implementação:** `app/ai/service.py` – `detect_visit_intent()`
 
-### 4. Detecção e Vinculação Automática de Imóveis
+### 7.4. Detecção e vinculação de imóveis
 
 **Quando:** Durante o processamento de um atendimento
 
@@ -168,9 +259,16 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 - **Detecta confirmação** quando o cliente confirma interesse em um imóvel já vinculado
 - Cria eventos na timeline do cliente quando um imóvel é selecionado ou confirmado
 
-**Implementação:** `app/ai/service.py` - `detect_property_mention()`
+**Implementação:** `app/ai/service.py` – `detect_property_mention()`
 
-### 5. Derivação de Estado do Cliente (State Derivation)
+### 7.5. Key points no fechamento (venda/perda)
+
+- Ao **registrar venda** ou **perda**, o resumo da IA é atualizado com **key_points**:
+  - **property_purchased**: descrição do imóvel comprado/alugado (quando há venda).
+  - **property_lost**: descrição do imóvel do ciclo quando a perda é registrada.
+- Esses campos alimentam o contexto do **chat** e dos **insights** no frontend.
+
+### 7.6. Derivação de estado do cliente (State Derivation)
 
 **Quando:** Após cada análise de atendimento pela IA no ciclo ACTIVE
 
@@ -210,9 +308,9 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 - Ciclos anteriores (COMPLETED, LOST, ABANDONED) **NÃO são considerados**
 - Isso garante que o perfil sempre reflita o objetivo e contexto atual do cliente
 
-**Implementação:** `app/clients/state_derivation_service.py`
+**Implementação:** `app/clients/state_derivation_service.py`. Ao fechar ciclo por venda/perda, o **lead score de fechamento** (ex.: 100) é aplicado ao cliente em `apply_closure_lead_score_to_client`.
 
-### 6. Análise de Jornada do Cliente (Journey Analysis)
+### 7.7. Análise de jornada (Journey)
 
 **Quando:** Solicitado via API para análise completa
 
@@ -233,7 +331,7 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 
 **Implementação:** `app/ai/journey_service.py`
 
-### 7. Chat Assistente com IA
+### 7.8. Chat assistente
 
 **Quando:** Solicitado via API
 
@@ -243,9 +341,9 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 - Respostas baseadas em todo o histórico disponível
 - Sugestões acionáveis para o corretor
 
-**Implementação:** `app/ai/chat_service.py`
+Contexto do atendimento (resumo IA, imóvel vinculado, visitas, vendas/perdas) e datas em horário de Brasília são incluídos no prompt. **Implementação:** `app/ai/chat_service.py`
 
-### 8. Recomendação Inteligente de Imóveis
+### 7.9. Recomendação de imóveis
 
 **Quando:** Durante análise de atendimento
 
@@ -255,412 +353,13 @@ O sistema utiliza **Google Gemini AI** para processar e analisar todas as intera
 - **Rankeia** imóveis por relevância
 - Retorna lista de propriedades recomendadas vinculadas ao atendimento
 
-**Implementação:** `app/ai/service.py` - `_recommend_properties()`
+**Implementação:** `app/ai/service.py` – `_recommend_properties()`
 
 ---
 
-## 🔄 Fluxo Completo do Sistema
+## 8. API (endpoints)
 
-### Fluxo: Cliente → Imóvel → Atendimento → IA → Visita → Venda/Perda
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    1. CRIAÇÃO DO CLIENTE                        │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  Cliente Criado │
-                    │  (Nome, Tel,    │
-                    │   Email, Origem)│
-                    │                 │
-                    │  Valores Padrão:│
-                    │  - Status:      │
-                    │    NEW_LEAD     │
-                    │  - Lead Score:  │
-                    │    30 (base)    │
-                    │  - Urgência:    │
-                    │    MEDIUM       │
-                    └────────┬────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  2. REGISTRO DE ATENDIMENTO                      │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │ Atendimento     │
-                    │ - Canal         │
-                    │ - Conteúdo      │
-                    │ - Objetivo      │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  IA Processa    │
-                    │  - Resumo       │
-                    │  - Intenção     │
-                    │  - Sentimento   │
-                    │  - Propriedades │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  IA Detecta:    │
-                    │  - Visita?      │
-                    │  - Imóvel?      │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  Atualiza Cliente│
-                    │  (Ciclo ACTIVE) │
-                    │  - Lead Score   │
-                    │  - Perfil       │
-                    │  - Status       │
-                    │  - Timeline     │
-                    │                 │
-                    │  ⚠️ Perfil reflete│
-                    │  APENAS ciclo   │
-                    │  ACTIVE atual   │
-                    └────────┬────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  3. VINCULAÇÃO DE IMÓVEL                        │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  IA Detecta     │
-                    │  Menção de      │
-                    │  Imóvel         │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  Vincula Imóvel │
-                    │  ao Atendimento │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  Timeline Event: │
-                    │  PROPERTY_       │
-                    │  SELECTED       │
-                    └────────┬────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  4. AGENDAMENTO DE VISITA                        │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  IA Detecta     │
-                    │  Intenção de    │
-                    │  Visita         │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  Extrai:        │
-                    │  - Data/Hora    │
-                    │  - Imóvel       │
-                    │  - Notas        │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  Frontend:      │
-                    │  Modal de       │
-                    │  Confirmação    │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  Visita Criada  │
-                    │  - Agendada     │
-                    │  - Vinculada    │
-                    └────────┬────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  5. RESULTADO FINAL                              │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    │                   │
-                    ▼                   ▼
-          ┌─────────────────┐  ┌─────────────────┐
-          │   VENDA         │  │   PERDA         │
-          │   FECHADA      │  │   REGISTRADA    │
-          └────────┬────────┘  └────────┬────────┘
-                   │                   │
-                   ▼                   ▼
-          ┌─────────────────┐  ┌─────────────────┐
-          │  Sale Criado     │  │  Loss Criado    │
-          │  - Valor         │  │  - Motivo       │
-          │  - Comissão      │  │  - Feedback     │
-          │  - Métodos Pag.  │  └─────────────────┘
-          └────────┬────────┘
-                   │
-                   ▼
-          ┌─────────────────┐
-          │  Atendimento    │
-          │  COMPLETED      │
-          └─────────────────┘
-```
-
-### Ciclo de Atendimento (Attendance Cycle)
-
-O sistema implementa um conceito de **ciclo de atendimento** onde:
-
-- **Um Attendance = Um ciclo completo de decisão do cliente**
-- **Ciclo começa quando:** Cliente inicia um objetivo (ex: comprar imóvel em X cidade)
-- **Ciclo termina quando:**
-  - Cliente compra (WON / COMPLETED)
-  - Cliente desiste (LOST)
-  - Cliente abandona (ABANDONED)
-- **Durante o ciclo:**
-  - Múltiplas conversas são acumuladas no mesmo Attendance
-  - Visitas são agendadas
-  - Propostas são atualizadas
-  - Orçamento é refinado
-  - Família é envolvida
-  - Tudo pertence ao mesmo ciclo enquanto o objetivo estratégico não mudar
-
-**Regras:**
-- Um cliente pode ter apenas **um ciclo ACTIVE** por vez
-- Refinamentos (mudança de orçamento, urgência, tipo de imóvel) **NÃO** criam novo ciclo
-- Novo ciclo é criado apenas quando há **mudança estratégica real** (BUY → RENT, mudança de cidade) ou **reativação após longo período**
-
-**⚠️ CRÍTICO - Proteções Implementadas:**
-1. **Nunca pode existir 2 ACTIVE**: Sistema garante apenas um ciclo ACTIVE por cliente (com locks de banco)
-2. **Não atualiza de ciclo fechado**: Perfil do cliente só é atualizado a partir de ciclos ACTIVE
-3. **Toda atualização passa pelo ciclo**: Campos AI-controlados só podem ser atualizados via atendimentos
-4. **Mantém estado se não houver ACTIVE**: Se não houver ciclo ACTIVE, perfil mantém último estado até novo ciclo surgir
-
-**Perfil do Cliente:**
-- O perfil do cliente reflete **APENAS o ciclo ACTIVE atual**
-- Quando um novo ciclo ACTIVE começa, o perfil é atualizado baseado **APENAS nesse ciclo**
-- Ciclos anteriores (COMPLETED, LOST, ABANDONED) **NÃO são considerados** na derivação do perfil
-- Isso garante que o perfil sempre reflita o objetivo e contexto atual do cliente
-
-**Implementação:** `app/attendances/objective_service.py` e `app/attendances/repository.py`
-
----
-
-## 📁 Estrutura do Projeto
-
-```
-Projeto-Tecnico-Astrocode-Backend/
-│
-├── app/                          # Código principal da aplicação
-│   ├── ai/                       # Módulo de Inteligência Artificial
-│   │   ├── chat_service.py      # Serviço de chat com IA
-│   │   ├── chat_router.py        # Rotas de chat
-│   │   ├── gemini_service.py     # Integração com Google Gemini
-│   │   ├── journey_service.py    # Análise de jornada do cliente
-│   │   ├── journey_routes.py     # Rotas de jornada
-│   │   ├── models.py             # Modelos de dados (AISummary, etc)
-│   │   ├── prompts.py            # Prompts para a IA
-│   │   ├── repository.py         # Repositório de AI Summaries
-│   │   ├── routes.py              # Rotas de AI Summaries
-│   │   ├── schemas.py             # Schemas Pydantic
-│   │   └── service.py             # Serviço principal de análise
-│   │
-│   ├── attendances/               # Módulo de Atendimentos
-│   │   ├── models.py             # Modelo Attendance
-│   │   ├── objective_service.py  # Detecção e comparação de objetivos
-│   │   ├── repository.py         # Lógica de negócio de atendimentos
-│   │   ├── routes.py             # Rotas de atendimentos
-│   │   └── schemas.py            # Schemas de atendimentos
-│   │
-│   ├── clients/                   # Módulo de Clientes
-│   │   ├── models.py             # Modelo Client
-│   │   ├── repository.py         # Repositório de clientes
-│   │   ├── routes.py              # Rotas de clientes
-│   │   ├── schemas.py             # Schemas de clientes
-│   │   ├── score_service.py       # Serviço de cálculo de lead score
-│   │   ├── state_derivation_service.py  # Derivação de estado do cliente
-│   │   └── timeline_models.py     # Modelos de timeline
-│   │
-│   ├── properties/                # Módulo de Imóveis
-│   │   ├── models.py             # Modelo Property
-│   │   ├── repository.py         # Repositório de imóveis
-│   │   ├── routes.py              # Rotas de imóveis
-│   │   └── schemas.py             # Schemas de imóveis
-│   │
-│   ├── visits/                    # Módulo de Visitas
-│   │   ├── models.py             # Modelo Visit
-│   │   ├── repository.py         # Repositório de visitas
-│   │   ├── routes.py              # Rotas de visitas
-│   │   └── schemas.py             # Schemas de visitas
-│   │
-│   ├── sales/                     # Módulo de Vendas
-│   │   ├── models.py             # Modelo Sale
-│   │   ├── repository.py         # Repositório de vendas
-│   │   ├── routes.py              # Rotas de vendas
-│   │   └── schemas.py             # Schemas de vendas
-│   │
-│   ├── losses/                    # Módulo de Perdas
-│   │   ├── models.py             # Modelo ClientLoss
-│   │   ├── repository.py         # Repositório de perdas
-│   │   ├── routes.py              # Rotas de perdas
-│   │   └── schemas.py             # Schemas de perdas
-│   │
-│   ├── users/                     # Módulo de Usuários
-│   │   ├── models.py             # Modelo User
-│   │   ├── repository.py         # Repositório de usuários
-│   │   ├── role_repository.py     # Repositório de roles
-│   │   ├── routes.py              # Rotas de usuários
-│   │   └── schemas.py             # Schemas de usuários
-│   │
-│   ├── auth/                      # Módulo de Autenticação
-│   │   ├── dependencies.py       # Dependências de autenticação
-│   │   ├── jwt.py                # Utilitários JWT
-│   │   ├── models.py             # Modelos de autenticação
-│   │   ├── oauth_service.py      # Serviço OAuth Google
-│   │   ├── password.py           # Utilitários de senha
-│   │   ├── routes.py              # Rotas de autenticação
-│   │   ├── schemas.py             # Schemas de autenticação
-│   │   └── service.py             # Serviço de autenticação
-│   │
-│   ├── config/                    # Configurações
-│   │   └── settings.py           # Configurações da aplicação
-│   │
-│   ├── core/                      # Código core
-│   │   └── logging.py            # Configuração de logging
-│   │
-│   ├── db/                        # Banco de dados
-│   │   ├── base.py               # Base do SQLAlchemy
-│   │   └── session.py            # Sessão do banco
-│   │
-│   ├── services/                  # Serviços externos
-│   │   └── cloudinary_service.py  # Integração Cloudinary
-│   │
-│   └── main.py                    # Aplicação FastAPI principal
-│
-├── alembic/                       # Migrações do banco de dados
-│   ├── versions/                 # Arquivos de migração
-│   └── env.py                    # Configuração Alembic
-│
-├── scripts/                       # Scripts utilitários
-│   ├── create_manager.py         # Criar usuário gestor
-│   ├── create_test_user.py      # Criar usuário de teste
-│   └── assign_role.py            # Atribuir role a usuário
-│
-├── tests/                         # Testes automatizados
-│
-├── docs/                          # Documentação
-│   ├── AUTHENTICATION.md         # Documentação de autenticação
-│   ├── DOCUMENTACAO_SISTEMA.md    # Documentação do sistema
-│   ├── FLUXO_CLIENTE_IMOVEL_ATENDIMENTO.md
-│   └── GUIA_TESTES_COMPLETO.md   # Guia de testes
-│
-├── pyproject.toml                  # Configuração do projeto
-├── alembic.ini                    # Configuração Alembic
-└── README.md                       # Este arquivo
-```
-
----
-
-## 🚀 Instalação e Configuração
-
-### Pré-requisitos
-
-- **Python 3.11+**
-- **PostgreSQL 13+**
-- **Chave da API Google Gemini** ([Obter aqui](https://ai.google.dev/))
-
-### 1. Clone o Repositório
-
-```bash
-git clone <url-do-repositorio>
-cd Projeto-Tecnico-Astrocode-Backend
-```
-
-### 2. Criar Ambiente Virtual
-
-```bash
-# Windows
-python -m venv .venv
-.venv\Scripts\activate
-
-# Linux/Mac
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3. Instalar Dependências
-
-```bash
-pip install -e .
-```
-
-### 4. Configurar Variáveis de Ambiente
-
-Crie um arquivo `.env` na raiz do projeto:
-
-```env
-# Banco de Dados
-DATABASE_URL=postgresql://usuario:senha@localhost:5432/real_estate_crm
-
-# JWT
-JWT_SECRET_KEY=sua-chave-secreta-mude-em-producao
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_HOURS=24
-
-# Google Gemini AI
-GEMINI_API_KEY=sua-chave-gemini
-
-# OAuth Google (Opcional)
-GOOGLE_CLIENT_ID=seu-google-client-id
-GOOGLE_CLIENT_SECRET=seu-google-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
-
-# Frontend
-FRONTEND_URL=http://localhost:5173
-
-# Ambiente
-ENVIRONMENT=development
-```
-
-### 5. Configurar Banco de Dados
-
-```bash
-# Criar banco de dados
-psql -U postgres -c "CREATE DATABASE real_estate_crm;"
-
-# Executar migrações
-alembic upgrade head
-```
-
-### 6. Criar Primeiro Usuário (Gestor)
-
-```bash
-python scripts/create_manager.py \
-  --email admin@exemplo.com \
-  --password senha123456 \
-  --name "Administrador"
-```
-
-### 7. Executar a Aplicação
-
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-A aplicação estará disponível em:
-- **API:** http://localhost:8000
-- **Documentação Swagger:** http://localhost:8000/docs
-- **Documentação ReDoc:** http://localhost:8000/redoc
-
----
-
-## 📡 API Endpoints
+Resumo dos principais endpoints por recurso. O fluxo completo (cliente → atendimento → visita → venda/perda) está descrito nos tópicos **5** e **6**.
 
 ### Autenticação
 
@@ -691,7 +390,7 @@ A aplicação estará disponível em:
 | POST | `/attendances` | Criar atendimento (com análise IA) | Protegido |
 | GET | `/attendances` | Listar atendimentos | Protegido |
 | GET | `/attendances/{id}` | Buscar atendimento | Protegido |
-| PUT | `/attendances/{id}` | Atualizar atendimento | Protegido |
+| PUT | `/attendances/{id}` | Atualizar atendimento (apenas `property_id` editável) | Protegido |
 | DELETE | `/attendances/{id}` | Deletar atendimento | Protegido |
 | GET | `/attendances/client/{client_id}` | Atendimentos de um cliente | Protegido |
 
@@ -755,82 +454,11 @@ A aplicação estará disponível em:
 
 ---
 
-## ⚙️ Funcionalidades Principais
-
-### 1. Gestão de Clientes
-
-- **Cadastro completo** com informações de contato
-- **Valores padrão** ao criar (Status: NEW_LEAD, Lead Score: 30, Urgência: MEDIUM)
-- **Atualização automática** pela IA através de atendimentos no ciclo ACTIVE
-- **Lead Score dinâmico** atualizado gradualmente conforme interações no ciclo
-- **Status controlado pela IA** baseado em intent, sentiment, visits, lead_score
-- **Timeline completa** de eventos do cliente
-- **Perfil derivado** automaticamente pela IA (não editável manualmente)
-- **Perfil reflete apenas ciclo ACTIVE** atual, não histórico consolidado
-- **Rastreamento de origem** do lead (WhatsApp, Site, Telefone)
-
-### 2. Gestão de Atendimentos
-
-- **Ciclo de atendimento** inteligente (um ciclo = um objetivo)
-- **Análise automática** pela IA a cada atendimento
-- **Detecção automática** de intenção de visita
-- **Vinculação automática** de imóveis mencionados
-- **Resumo profissional** gerado pela IA
-- **Recomendação de imóveis** baseada no perfil
-
-### 3. Gestão de Imóveis
-
-- **Cadastro completo** com fotos, preços, características
-- **Suporte a venda e aluguel**
-- **Upload de imagens** via Cloudinary
-- **Busca e filtros** avançados
-- **Recomendação inteligente** para clientes
-
-### 4. Gestão de Visitas
-
-- **Agendamento** de visitas a imóveis
-- **Detecção automática** de intenção de visita pela IA
-- **Status tracking** (AGENDADA, REALIZADA, CANCELADA, REMARCADA)
-- **Vinculação** com cliente e imóvel
-- **Notas e feedback** da visita
-
-### 5. Gestão de Vendas
-
-- **Registro completo** de vendas
-- **Múltiplos métodos de pagamento** (À vista, Financiamento, Parcelado, Misto)
-- **Cálculo automático** de comissão
-- **Vinculação** com cliente, imóvel e corretor
-- **Estatísticas** de vendas
-
-### 6. Gestão de Perdas
-
-- **Registro de perdas** com motivo e feedback
-- **Análise** de razões de perda
-- **Estatísticas** de perdas
-- **Aprendizado** para melhorar processos
-
-### 7. Sistema de Autenticação
-
-- **JWT** para autenticação stateless
-- **OAuth 2.0** com Google
-- **RBAC** (Role-Based Access Control)
-- **Roles:** Atendente, Corretor, Gestor
-- **Proteção de rotas** por role
-
-### 8. Timeline de Clientes
-
-- **Eventos automáticos** criados pelo sistema:
-  - Criação de cliente
-  - Atendimentos criados/finalizados
-  - Visitas agendadas/realizadas
-  - Imóveis selecionados/confirmados
-  - Vendas registradas
-  - Perdas registradas
-- **Rastreabilidade completa** de todas as ações
+As funcionalidades por área (clientes, atendimentos, imóveis, visitas, vendas, perdas, timeline) estão descritas nos tópicos **4 a 7**.
 
 ---
 
-## 🔒 Segurança e Autenticação
+## 9. Segurança e autenticação
 
 ### Autenticação JWT
 
@@ -858,78 +486,6 @@ A aplicação estará disponível em:
 - Proteção contra SQL Injection (SQLAlchemy ORM)
 - CORS configurado
 - Headers de segurança
-
----
-
-## 🗄️ Banco de Dados
-
-### Modelos Principais
-
-#### Client
-- Informações de contato
-- Perfil derivado pela IA (não editável manualmente)
-- **Campos AI-controlados:**
-  - `current_interest_type`, `current_property_type`, `current_city_interest`
-  - `current_budget_min`, `current_budget_max`, `current_urgency_level`
-  - `current_lead_score`, `current_status`
-- Lead Score dinâmico (atualizado gradualmente no ciclo ACTIVE)
-- Status no funil de vendas (detectado automaticamente pela IA)
-- Timeline de eventos
-- **Perfil reflete apenas ciclo ACTIVE atual**
-
-#### Attendance
-- Conteúdo da conversa (raw_content)
-- Canal de atendimento
-- Status do ciclo (ACTIVE, COMPLETED, LOST, ABANDONED)
-- Objetivo do ciclo
-- Vinculação com imóvel
-
-#### AISummary
-- Resumo gerado pela IA
-- Pontos-chave extraídos
-- Intenção detectada
-- Sentimento
-- Propriedades recomendadas
-- Score de confiança
-
-#### Property
-- Informações do imóvel
-- Preços (venda e aluguel)
-- Características
-- Fotos (Cloudinary)
-- Status de disponibilidade
-
-#### Visit
-- Data e hora agendada
-- Status
-- Vinculação com cliente e imóvel
-- Notas e feedback
-
-#### Sale
-- Valor da venda
-- Métodos de pagamento (JSONB)
-- Comissão
-- Vinculação com cliente, imóvel e corretor
-
-#### ClientLoss
-- Motivo da perda
-- Feedback
-- Vinculação com cliente
-
-### Migrações
-
-O sistema utiliza **Alembic** para gerenciar migrações do banco de dados. Todas as mudanças no schema são versionadas e podem ser aplicadas/revertidas facilmente.
-
-```bash
-# Criar nova migração
-alembic revision --autogenerate -m "descrição da mudança"
-
-# Aplicar migrações
-alembic upgrade head
-
-# Reverter migração
-alembic downgrade -1
-```
 
 ---
 
@@ -962,7 +518,7 @@ pytest tests/test_clients.py
 
 ---
 
-## 🎯 Destaques Técnicos
+## 10. Destaques técnicos e proteções
 
 ### Arquitetura
 
