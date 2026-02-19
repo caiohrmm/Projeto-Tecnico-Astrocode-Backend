@@ -472,9 +472,9 @@ RESUMO:"""
         if any(word in content_lower for word in ["imediato", "urgente", "hoje", "agora", "rápido", "já", "imediatamente", "asap"]):
             return UrgencyLevel.IMMEDIATE
         
-        # High urgency: next week, few days, soon, specific short timelines
+        # High urgency: next week, few days, soon (avoid "próximo" alone - it matches "próximo mês" → medium)
         high_urgency_patterns = [
-            "semana que vem", "próxima semana", "próximo", "logo", "breve", "em breve",
+            "semana que vem", "próxima semana", "logo", "breve", "em breve",
             "daqui alguns dias", "daqui poucos dias", "nos próximos dias", "essa semana",
             "em dias", "em algumas semanas", "nas próximas semanas"
         ]

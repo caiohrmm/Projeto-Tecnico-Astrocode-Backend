@@ -711,7 +711,8 @@ class ClientStateDerivationService:
                             )
                             break
                 
-                # For lead_score, always update (no anti-flip logic)
+                # For lead_score and urgency_level, always update (no anti-flip logic)
+                # Urgency should react quickly to explicit signals (e.g. "urgente", "essa semana")
                 # For other fields, only suggest if new value is significantly better
                 if field_name == "lead_score":
                     # Always create suggestion for lead_score (AI-controlled, should always update)
@@ -737,6 +738,17 @@ class ClientStateDerivationService:
                             reason=f"AI suggested lead_score from attendance {best_signal.source_attendance_id}",
                         )
                         suggestions.append(direct_suggestion)
+                elif field_name == "urgency_level":
+                    # Always suggest urgency when detected (react quickly to "urgente", "semana que vem", etc.)
+                    suggestion = ClientStateDerivationService._create_suggestion_from_signal(
+                        client=client,
+                        signal=best_signal,
+                        reference_time=reference_time,
+                        field_name=client_field_name,
+                        cluster_context=False,
+                    )
+                    if suggestion:
+                        suggestions.append(suggestion)
                 else:
                     score_difference = best_score - current_field_score
                     
