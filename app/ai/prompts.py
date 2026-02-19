@@ -39,8 +39,25 @@ ENUM_TRANSLATIONS = {
     # Attendance Status
     "ACTIVE": "Ativo",
     "COMPLETED": "Concluído",
-    "LOST": "Perdido",
     "ABANDONED": "Abandonado",
+    # Visit Status
+    "SCHEDULED": "Agendada",
+    "CONFIRMED": "Confirmada",
+    "IN_PROGRESS": "Em andamento",
+    "CANCELLED": "Cancelada",
+    "NO_SHOW": "Não compareceu",
+    # Detected Intent
+    "SALE_COMPLETED": "Venda concretizada",
+    "LOSS_REGISTERED": "Perda registrada",
+    "SCHEDULE_VISIT": "Agendar visita",
+    "PRICE_NEGOTIATION": "Negociação de preço",
+    "PROPERTY_SEARCH": "Busca de imóvel",
+    "GENERAL_INQUIRY": "Consulta geral",
+    # Sentiment
+    "POSITIVE": "Positivo",
+    "NEUTRAL": "Neutro",
+    "NEGATIVE": "Negativo",
+    "MIXED": "Misto",
 }
 
 SYSTEM_PROMPT = """Você é um assistente de IA especializado em imóveis e mercado imobiliário brasileiro. Sua função é ajudar usuários com:
@@ -176,11 +193,83 @@ def build_context_prompt(
         context_parts.append("")
     
     if attendance_data:
-        context_parts.append("=== INFORMAÇÕES DO ATENDIMENTO ===")
-        context_parts.append(f"Data: {attendance_data.get('created_at', 'N/A')}")
-        context_parts.append(f"Status: {translate_enum(attendance_data.get('status'))}")
-        if attendance_data.get('raw_content'):
-            context_parts.append(f"Conteúdo: {attendance_data.get('raw_content')}")
+        context_parts.append("=== INFORMAÇÕES DO ATENDIMENTO (CONTEXTO COMPLETO) ===")
+        context_parts.append(f"Data de criação: {attendance_data.get('created_at', 'N/A')}")
+        context_parts.append(f"Última atualização: {attendance_data.get('updated_at', 'N/A')}")
+        context_parts.append(f"Status do ciclo: {translate_enum(attendance_data.get('status'))}")
+        if attendance_data.get('objective'):
+            context_parts.append(f"Objetivo do ciclo: {attendance_data.get('objective')}")
+        context_parts.append("")
+        # Resumo da IA (análise atual)
+        ai = attendance_data.get("ai_summary")
+        if ai:
+            context_parts.append("--- Resumo da análise da IA ---")
+            if ai.get("summary_text"):
+                context_parts.append(f"Resumo: {ai.get('summary_text')}")
+            if ai.get("detected_intent"):
+                context_parts.append(f"Intenção detectada: {translate_enum(ai.get('detected_intent'))}")
+            if ai.get("urgency_level_detected"):
+                context_parts.append(f"Urgência detectada: {translate_enum(ai.get('urgency_level_detected'))}")
+            if ai.get("lead_score_suggested") is not None:
+                context_parts.append(f"Lead score sugerido: {ai.get('lead_score_suggested')}/100")
+            if ai.get("sentiment"):
+                context_parts.append(f"Sentimento: {translate_enum(ai.get('sentiment'))}")
+            context_parts.append("")
+        if attendance_data.get("property_purchased"):
+            context_parts.append(f"Imóvel comprado/alugado neste atendimento: {attendance_data.get('property_purchased')}")
+            context_parts.append("")
+        if attendance_data.get("property_lost"):
+            context_parts.append(f"Imóvel do atendimento (perda): {attendance_data.get('property_lost')}")
+            context_parts.append("")
+        # Imóvel vinculado ao atendimento
+        lp = attendance_data.get("linked_property")
+        if lp:
+            context_parts.append("--- Imóvel vinculado ao atendimento ---")
+            context_parts.append(f"Código: {lp.get('code', 'N/A')} | Título: {lp.get('title', 'N/A')}")
+            context_parts.append(f"Tipo: {translate_enum(lp.get('property_type'))} | Status: {translate_enum(lp.get('status'))}")
+            if lp.get("city"):
+                context_parts.append(f"Cidade: {lp.get('city')}")
+            if lp.get("price"):
+                context_parts.append(f"Preço venda: R$ {lp.get('price')}")
+            if lp.get("rent_price"):
+                context_parts.append(f"Preço aluguel: R$ {lp.get('rent_price')}")
+            context_parts.append("")
+        # Visitas
+        visits = attendance_data.get("visits") or []
+        if visits:
+            context_parts.append("--- Visitas deste atendimento ---")
+            for v in visits[:10]:
+                prop = v.get("property") or "N/A"
+                status = translate_enum(v.get("status"))
+                data_visita = v.get("scheduled_at") or "N/A"
+                context_parts.append(f"  - {data_visita} | Status: {status} | Imóvel: {prop}")
+            context_parts.append("")
+        # Vendas do cliente (destaque se for o imóvel deste atendimento)
+        sales = attendance_data.get("sales") or []
+        if sales:
+            context_parts.append("--- Vendas do cliente ---")
+            for s in sales[:5]:
+                tipo = translate_enum(s.get("sale_type"))
+                valor = s.get("sale_value")
+                valor_str = f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if valor else "N/A"
+                destaque = " [IMÓVEL DESTE ATENDIMENTO]" if s.get("is_linked_to_this_attendance") else ""
+                context_parts.append(f"  - {s.get('property', 'N/A')} | {tipo} | {valor_str} | {s.get('created_at') or 'N/A'}{destaque}")
+            context_parts.append("")
+        # Perdas do cliente
+        losses = attendance_data.get("losses") or []
+        if losses:
+            context_parts.append("--- Perdas do cliente ---")
+            for lo in losses[:3]:
+                motivo = translate_enum(lo.get("reason")) or lo.get("detailed_reason") or "N/A"
+                context_parts.append(f"  - Motivo: {motivo} | Imóvel: {lo.get('property', 'N/A')} | Data: {lo.get('lost_at') or 'N/A'}")
+            context_parts.append("")
+        # Conteúdo bruto da conversa
+        if attendance_data.get("raw_content"):
+            context_parts.append("--- Conteúdo da conversa ---")
+            raw = attendance_data.get("raw_content")
+            context_parts.append(raw[:8000] + ("..." if len(raw) > 8000 else ""))
+            context_parts.append("")
+        context_parts.append("Use as informações acima para responder com precisão. Se o usuário pedir um resumo completo, inclua: estado do atendimento, se há imóvel vinculado e seu status, se há visita agendada, se houve venda ou perda, e os pontos principais da conversa.")
         context_parts.append("")
     
     if dashboard_data:
