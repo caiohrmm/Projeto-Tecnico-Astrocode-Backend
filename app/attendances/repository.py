@@ -790,8 +790,10 @@ class AttendanceRepository:
                 else:
                     logger.info(
                         f"Attendance {attendance.id} is {attendance.status.value}, not ACTIVE. "
-                        "Skipping client profile update. Client profile maintains last state."
+                        "Skipping full client profile update. Applying closure lead_score only."
                     )
+                    # Apply AI-suggested lead_score (e.g. 100 for SALE_COMPLETED) so client card shows correct score
+                    self.apply_closure_lead_score_to_client(attendance.id)
                 
                 # Add timeline event for completed attendance
                 self._add_timeline_event(
@@ -1196,6 +1198,31 @@ class AttendanceRepository:
                     attendance.ai_summary = f"Erro ao gerar resumo da IA: {str(e)}"
             except Exception:
                 pass  # Ignore if attendance is detached
+
+    def apply_closure_lead_score_to_client(self, attendance_id: uuid.UUID) -> None:
+        """
+        When an attendance was just closed (sale or loss), apply the AI summary's
+        suggested lead_score to the client. Normally we only update profile from
+        ACTIVE cycles, but the final lead_score (e.g. 100 for SALE_COMPLETED) must
+        be applied so the client card shows the correct score instead of the old one.
+        """
+        ai_repo = AISummaryRepository(self.db)
+        ai_summary = ai_repo.get_by_attendance_id(attendance_id)
+        if not ai_summary or ai_summary.lead_score_suggested is None:
+            return
+        attendance = self.db.get(Attendance, attendance_id)
+        if not attendance:
+            return
+        client_repo = ClientRepository(self.db)
+        client = client_repo.get_by_id(attendance.client_id)
+        if not client:
+            return
+        update_data = ClientUpdate(current_lead_score=ai_summary.lead_score_suggested)
+        client_repo.update(client, update_data, allow_ai_lead_score_update=True)
+        logger.info(
+            f"Applied closure lead_score {ai_summary.lead_score_suggested} to client {client.id} "
+            f"from attendance {attendance_id} (cycle closed)"
+        )
 
     def _update_client_from_ai_summary(self, client_id: uuid.UUID, ai_summary: AISummary) -> None:
         """

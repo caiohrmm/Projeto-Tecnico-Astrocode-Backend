@@ -70,6 +70,8 @@ class LossRepository:
             # Regenerate AI summary so it reflects "encerrado como perda"
             try:
                 attendance_repo._generate_ai_summary(active_attendance)
+                # Apply AI-suggested lead_score to client (e.g. reduced score for loss)
+                attendance_repo.apply_closure_lead_score_to_client(active_attendance.id)
             except Exception as e:
                 logger.warning(f"Could not regenerate AI summary after loss: {e}")
 

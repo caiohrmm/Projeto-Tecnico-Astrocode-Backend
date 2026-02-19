@@ -104,6 +104,8 @@ class SaleRepository:
             # Regenerate AI summary so it reflects "concluído com venda" and the property purchased
             try:
                 attendance_repo._generate_ai_summary(active_attendance)
+                # Apply lead_score 100 (SALE_COMPLETED) to client so card shows 100, not old 40
+                attendance_repo.apply_closure_lead_score_to_client(active_attendance.id)
             except Exception as e:
                 logger.warning(f"Could not regenerate AI summary after sale: {e}")
 
