@@ -15,7 +15,7 @@ from app.ai.models import (
     DetectedIntent,
     Sentiment,
 )
-from app.attendances.models import Attendance
+from app.attendances.models import Attendance, AttendanceStatus
 from app.clients.models import InterestType, PropertyType, UrgencyLevel
 from app.properties.models import PropertyType as PropertyTypeEnum
 from app.properties.repository import PropertyRepository
@@ -41,6 +41,72 @@ class AISummaryService:
         return cls._gemini_service
 
     @staticmethod
+    def _get_attendance_closure_context(attendance: Attendance, db: Session) -> dict[str, Any]:
+        """
+        Build context when attendance is closed with sale or loss (status COMPLETED or LOST).
+        Used so the AI knows the attendance was finalized and which property was bought/lost,
+        even when the conversation text does not explicitly say so.
+        """
+        from app.losses.repository import LossRepository
+        from app.sales.repository import SaleRepository
+
+        out: dict[str, Any] = {
+            "intent_override": None,
+            "urgency_override": None,
+            "system_context": "",
+            "property_description": None,
+            "key_point_key": None,
+        }
+
+        def property_desc(prop_id: uuid.UUID | None) -> str | None:
+            if not prop_id:
+                return None
+            prop_repo = PropertyRepository(db)
+            prop = prop_repo.get_by_id(prop_id)
+            if not prop:
+                return None
+            return f"{prop.code} - {prop.title}" if (prop.code or prop.title) else "imóvel vinculado"
+
+        if attendance.status == AttendanceStatus.COMPLETED:
+            sale_repo = SaleRepository(db)
+            sales = sale_repo.get_all(client_id=attendance.client_id, limit=5)
+            if sales:
+                # Prefer sale of the property linked to this attendance
+                sale = next(
+                    (s for s in sales if s.property_id == attendance.property_id),
+                    sales[0],
+                )
+                out["intent_override"] = DetectedIntent.SALE_COMPLETED
+                out["urgency_override"] = UrgencyLevel.LOW
+                out["property_description"] = property_desc(sale.property_id) or "imóvel do atendimento"
+                out["key_point_key"] = "property_purchased"
+                out["system_context"] = (
+                    f"CONTEXTO DO SISTEMA (prioritário): Este atendimento foi CONCLUÍDO COM VENDA no sistema. "
+                    f"O cliente comprou/alugou o imóvel: {out['property_description']}. A venda já está registrada. "
+                    "O resumo DEVE deixar claro que a negociação foi finalizada com sucesso. "
+                    "NÃO sugira prospecção, agendamento de visita ou acompanhamento de interesse; indique próximos passos pós-venda (documentação, satisfação)."
+                )
+            return out
+
+        if attendance.status == AttendanceStatus.LOST:
+            loss_repo = LossRepository(db)
+            losses = loss_repo.get_all(client_id=attendance.client_id, limit=1)
+            if losses:
+                loss = losses[0]
+                out["intent_override"] = DetectedIntent.LOSS_REGISTERED
+                out["urgency_override"] = UrgencyLevel.LOW
+                out["property_description"] = property_desc(loss.property_id) if loss.property_id else None
+                out["key_point_key"] = "property_lost"
+                out["system_context"] = (
+                    "CONTEXTO DO SISTEMA (prioritário): Este atendimento foi encerrado como PERDA no sistema. A perda está registrada. "
+                    "O resumo DEVE deixar claro que o cliente desistiu/não fechou. "
+                    "NÃO sugira prospecção ativa ou agendamento de visita; indique manter relacionamento para futuras oportunidades."
+                )
+            return out
+
+        return out
+
+    @staticmethod
     def generate_summary(
         attendance: Attendance,
         db: Session | None = None,
@@ -48,11 +114,13 @@ class AISummaryService:
         """
         Generate AI summary from attendance raw content.
 
-        This is a mock implementation that simulates AI analysis.
-        In production, this would call an actual AI API (OpenAI, Anthropic, etc.).
+        When attendance is COMPLETED or LOST, uses system context (registered sale/loss
+        and linked property) so the AI reflects that the cycle was finalized, even if
+        the conversation text does not explicitly mention it.
 
         Args:
             attendance: Attendance instance to analyze
+            db: Optional DB session for recommendations and closure context
 
         Returns:
             Dictionary with all AI-generated fields for AISummary
@@ -60,16 +128,29 @@ class AISummaryService:
         try:
             raw_content = attendance.raw_content.lower()
 
-            # Detect urgency FIRST, before generating summary, to ensure consistency
-            urgency_level = AISummaryService._detect_urgency(attendance.raw_content)
-            
-            # Generate AI summary using Gemini API, passing detected urgency for consistency
+            # Closure context: attendance concluded with sale or loss (from system, not only from text)
+            closure = {}
+            if db:
+                closure = AISummaryService._get_attendance_closure_context(attendance, db)
+
+            # Urgency: override to LOW when closed with sale/loss
+            if closure.get("urgency_override") is not None:
+                urgency_level = closure["urgency_override"]
+            else:
+                urgency_level = AISummaryService._detect_urgency(attendance.raw_content)
+
+            # Summary text: pass system context so AI states that deal was closed and which property
             summary_text = AISummaryService._generate_summary_text(
-                attendance.raw_content, 
-                detected_urgency=urgency_level
+                attendance.raw_content,
+                detected_urgency=urgency_level,
+                system_context=closure.get("system_context") or None,
             )
             key_points = AISummaryService._extract_key_points(raw_content)
-            detected_intent = AISummaryService._detect_intent(raw_content)
+            # Intent: override from closure (sale/loss registered) when present
+            if closure.get("intent_override") is not None:
+                detected_intent = closure["intent_override"]
+            else:
+                detected_intent = AISummaryService._detect_intent(raw_content)
             interest_type = AISummaryService._detect_interest_type(raw_content)
             budget_range = AISummaryService._detect_budget(raw_content)
             lead_score = AISummaryService._suggest_lead_score(
@@ -86,20 +167,24 @@ class AISummaryService:
             )
 
             # Extract city from raw content and add to key_points
-            # Note: use original content (not lowercased) for city extraction
             city = AISummaryService._extract_city(attendance.raw_content)
             if city and key_points:
                 key_points["city"] = city
-            
-            # Extract property type from raw content and add to key_points
             detected_property_type = AISummaryService._extract_property_type(attendance.raw_content)
             if detected_property_type and key_points:
                 key_points["property_type"] = detected_property_type.value
+            # Add property purchased/lost from closure so frontend and next steps can use it
+            if closure.get("key_point_key") and closure.get("property_description") and key_points:
+                key_points[closure["key_point_key"]] = closure["property_description"]
 
-            # Generate property recommendations ONLY if no specific property is already assigned
-            # If client has a specific property interest (property_id), don't recommend others
+            # Generate property recommendations ONLY when no specific property and cycle not closed with sale
             recommended_properties: list[uuid.UUID] | None = None
-            if db and not attendance.property_id and (interest_type or city or detected_property_type or budget_range.get("min") or budget_range.get("max")):
+            if (
+                db
+                and not attendance.property_id
+                and closure.get("intent_override") != DetectedIntent.SALE_COMPLETED
+                and (interest_type or city or detected_property_type or budget_range.get("min") or budget_range.get("max"))
+            ):
                 recommended_properties = AISummaryService._recommend_properties(
                     db=db,
                     client_id=attendance.client_id,
@@ -187,26 +272,27 @@ class AISummaryService:
         return truncated
     
     @staticmethod
-    def _generate_summary_text(raw_content: str, detected_urgency: UrgencyLevel | None = None) -> str:
+    def _generate_summary_text(
+        raw_content: str,
+        detected_urgency: UrgencyLevel | None = None,
+        system_context: str | None = None,
+    ) -> str:
         """
         Generate summary text from raw content using Gemini API.
         
-        Automatically truncates content if it exceeds 50k characters to:
-        - Avoid excessive API costs
-        - Maintain AI context window
-        - Prioritize recent conversations while keeping initial context
+        When system_context is provided (attendance closed with sale/loss in the system),
+        the AI is instructed to state that the deal was finalized and which property,
+        so the summary matches the real status even if the conversation text does not.
         
         Args:
             raw_content: Raw content of the attendance
             detected_urgency: Detected urgency level to ensure consistency in summary
+            system_context: Optional context that the attendance was concluded with sale/loss and property info
         """
         gemini = AISummaryService._get_gemini_service()
         
-        # Truncate content intelligently if too large (50k chars limit for AI processing)
-        # This prevents excessive API costs and maintains context window
         processed_content = AISummaryService._truncate_content_intelligently(raw_content, max_chars=50000)
         
-        # If Gemini is not configured, fallback to simple extraction
         if not gemini.is_configured():
             logger.warning("Gemini API not configured, using fallback summary generation")
             sentences = processed_content.split(".")
@@ -214,13 +300,10 @@ class AISummaryService:
             summary = ". ".join(important_sentences)
             return summary if summary else processed_content[:200]
         
-        # Use Gemini to generate a real summary
         from datetime import datetime
         
-        # Get current date context for the AI
         current_date = datetime.now().strftime("%d/%m/%Y")
         
-        # Map urgency level to Portuguese description for the prompt
         urgency_context = ""
         if detected_urgency:
             urgency_map = {
@@ -232,13 +315,19 @@ class AISummaryService:
             urgency_label = urgency_map.get(detected_urgency, "MÉDIA")
             urgency_context = f"\nNÍVEL DE URGÊNCIA DETECTADO: {urgency_label}\n- Use este nível de urgência ao mencionar urgência no resumo para manter consistência.\n- Se o nível detectado for {urgency_label}, mencione urgência {urgency_label.lower()} no resumo."
         
+        system_context_block = ""
+        if system_context and system_context.strip():
+            system_context_block = f"""
+{system_context}
+"""
+
         prompt = f"""Você é um assistente especializado em análise de atendimentos imobiliários.
 
 Analise o seguinte conteúdo de atendimento e gere um resumo profissional, conciso e útil em português brasileiro.
 
 DATA ATUAL: {current_date}
 {urgency_context}
-
+{system_context_block}
 REGRAS IMPORTANTES:
 - NÃO copie o conteúdo original palavra por palavra
 - Crie um resumo objetivo destacando os pontos principais
@@ -247,7 +336,7 @@ REGRAS IMPORTANTES:
 - Seja específico sobre valores, localizações e preferências mencionadas
 - Máximo de 200 palavras
 - IMPORTANTE: Se um nível de urgência foi detectado acima, use EXATAMENTE esse nível ao mencionar urgência no resumo
-- CRÍTICO: Se o conteúdo indicar que a VENDA/ALUGUEL FOI CONCLUÍDA (ex: "fechou a compra", "venda concretizada", "comprou o imóvel") ou que houve PERDA (cliente desistiu), destaque isso claramente no resumo. Nesses casos NÃO sugira agendar visita ou ações de prospecção - a negociação já foi finalizada
+- CRÍTICO: Se o conteúdo OU o CONTEXTO DO SISTEMA indicar que a VENDA/ALUGUEL FOI CONCLUÍDA ou que houve PERDA, destaque isso claramente no resumo e NÃO sugira agendar visita ou prospecção; indique próximos passos pós-venda ou pós-perda conforme o contexto
 
 CONTEXTO TEMPORAL:
 - Quando mencionar datas, compare com a data atual ({current_date})

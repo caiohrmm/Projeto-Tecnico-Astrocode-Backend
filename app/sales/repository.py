@@ -101,6 +101,11 @@ class SaleRepository:
             active_attendance.status = AttendanceStatus.COMPLETED
             self.db.flush()
             logger.info(f"Closed active attendance {active_attendance.id} when sale was registered for client {sale_data.client_id}")
+            # Regenerate AI summary so it reflects "concluído com venda" and the property purchased
+            try:
+                attendance_repo._generate_ai_summary(active_attendance)
+            except Exception as e:
+                logger.warning(f"Could not regenerate AI summary after sale: {e}")
 
         # Add timeline event
         self._add_timeline_event(

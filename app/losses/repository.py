@@ -67,6 +67,11 @@ class LossRepository:
             active_attendance.status = AttendanceStatus.LOST
             self.db.flush()
             logger.info(f"Closed active attendance {active_attendance.id} when loss was registered for client {loss_data.client_id}")
+            # Regenerate AI summary so it reflects "encerrado como perda"
+            try:
+                attendance_repo._generate_ai_summary(active_attendance)
+            except Exception as e:
+                logger.warning(f"Could not regenerate AI summary after loss: {e}")
 
         # Add timeline event
         self._add_timeline_event(
