@@ -49,35 +49,41 @@ def _validate_agent_is_corretor(agent_id: uuid.UUID, db: Session) -> None:
         )
 
 
-@router.post("/", response_model=AttendanceResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=AttendanceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Criar ou acumular atendimento",
+    description="""
+Cria um novo ciclo de atendimento ou acumula conteúdo no ciclo ativo do cliente.
+
+**Regra central – um ativo por cliente:** o cliente tem no máximo um atendimento com status ACTIVE. Se já existir um ativo, o conteúdo é acumulado nele e a resposta indica `cycle_action: CYCLE_UPDATED`. Só é criado um novo ciclo quando não há ativo (ex.: anterior fechado como COMPLETED/LOST/ABANDONED); nesse caso `cycle_action: NEW_CYCLE_CREATED` e opcionalmente `previous_cycle_id`.
+
+**Agente:** `agent_id` é obrigatório e deve ser um usuário com role **corretor**; caso contrário retorna 400.
+
+**Objetivo:** se não informado, é detectado automaticamente a partir do `raw_content`.
+
+**Comportamentos automáticos:**
+- Resumo (AI) é gerado para o atendimento.
+- Se `updated_client_status` for enviado, o cliente é atualizado (status, interesse, tipo de imóvel).
+- Se `scheduled_visit_at` for informado, uma visita pode ser criada (conforme regras do repositório).
+- A IA pode devolver na resposta **sugestões** (não aplicadas automaticamente): `detected_visit`, `detected_loss`, `detected_sale`. Visita/perda/venda só são efetivadas após confirmação do usuário.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        201: {"description": "Atendimento criado ou ciclo atualizado"},
+        400: {"description": "agent_id não é corretor ou dados inválidos"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente, agente ou imóvel não encontrado"},
+        422: {"description": "Payload inválido"},
+    },
+)
 def create_attendance(
     attendance_data: AttendanceCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> AttendanceResponse:
-    """
-    Create a new attendance or update an existing active one.
-
-    **Cycle Logic:**
-    - Client has only one active attendance at a time.
-    - If the client has an active attendance, new content is accumulated into it.
-    - A new cycle is created only when no active attendance exists (previous closed).
-    - If no objective is provided, it will be auto-detected from the raw_content.
-
-    **Automatic Behaviors:**
-    - AI summary is generated automatically for new attendances.
-    - If updated_client_status is provided, client status will be updated.
-    - If scheduled_visit_at is provided, a visit will be created automatically.
-    - Client state is derived from AI signals with anti-flip logic.
-
-    Args:
-        attendance_data: Attendance creation data
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Created or updated attendance response
-    """
     # Validate agent_id must be a corretor
     _validate_agent_is_corretor(attendance_data.agent_id, db)
 
@@ -202,35 +208,34 @@ def create_attendance(
     return response
 
 
-@router.get("/", response_model=List[AttendanceResponse])
+@router.get(
+    "/",
+    response_model=List[AttendanceResponse],
+    summary="Listar atendimentos",
+    description="""
+Lista atendimentos com paginação e filtros opcionais.
+
+**Filtros:** client_id, agent_id, property_id, status (ACTIVE, COMPLETED, LOST, ABANDONED).  
+**available_for_visit:** quando true, retorna apenas atendimentos que podem receber uma nova visita (sem visita pendente).
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de atendimentos"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def list_attendances(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
-    client_id: uuid.UUID | None = Query(None, description="Filter by client ID"),
-    agent_id: uuid.UUID | None = Query(None, description="Filter by agent ID"),
-    property_id: uuid.UUID | None = Query(None, description="Filter by property ID"),
-    status: AttendanceStatus | None = Query(None, description="Filter by status"),
-    available_for_visit: bool = Query(False, description="If true, only attendances that can receive a new visit (no pending visit)"),
+    skip: int = Query(0, ge=0, description="Registros a pular (paginação)"),
+    limit: int = Query(100, ge=1, le=1000, description="Máximo de registros a retornar"),
+    client_id: uuid.UUID | None = Query(None, description="Filtrar por cliente"),
+    agent_id: uuid.UUID | None = Query(None, description="Filtrar por agente"),
+    property_id: uuid.UUID | None = Query(None, description="Filtrar por imóvel"),
+    status: AttendanceStatus | None = Query(None, description="Filtrar por status"),
+    available_for_visit: bool = Query(False, description="Apenas atendimentos que podem receber nova visita"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[AttendanceResponse]:
-    """
-    List all attendances with optional filtering and pagination.
-
-    Args:
-        skip: Number of records to skip
-        limit: Maximum number of records to return
-        client_id: Optional filter by client ID
-        agent_id: Optional filter by agent ID
-        property_id: Optional filter by property ID
-        status: Optional filter by status
-        available_for_visit: If true, only return attendances that do not have a pending visit
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        List of attendance responses
-    """
     attendance_repo = AttendanceRepository(db)
     attendances = attendance_repo.get_all(
         skip=skip,
@@ -255,29 +260,28 @@ def list_attendances(
     return result
 
 
-@router.get("/active/client/{client_id}", response_model=AttendanceResponse)
+@router.get(
+    "/active/client/{client_id}",
+    response_model=AttendanceResponse,
+    summary="Atendimento ativo do cliente",
+    description="""
+Retorna o atendimento com status ACTIVE do cliente, se existir.
+
+**Regra:** existe no máximo um atendimento ACTIVE por cliente. Útil para saber se já há ciclo em andamento antes de criar outro ou para acumular conteúdo no ciclo atual.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Atendimento ativo encontrado"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Nenhum atendimento ativo para o cliente"},
+    },
+)
 def get_active_attendance_by_client(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> AttendanceResponse:
-    """
-    Get the active attendance for a specific client.
-
-    This endpoint is useful for checking if a client has an ongoing attendance cycle
-    before creating a new one. The system ensures only one ACTIVE attendance per client.
-
-    Args:
-        client_id: Client UUID
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Active attendance response
-
-    Raises:
-        HTTPException: If no active attendance exists (404)
-    """
     attendance_repo = AttendanceRepository(db)
     attendance = attendance_repo.get_active_attendance_by_client(client_id)
 
@@ -290,26 +294,22 @@ def get_active_attendance_by_client(
     return AttendanceResponse.model_validate(attendance)
 
 
-@router.get("/{attendance_id}", response_model=AttendanceResponse)
+@router.get(
+    "/{attendance_id}",
+    response_model=AttendanceResponse,
+    summary="Buscar atendimento por ID",
+    description="Retorna um atendimento pelo UUID. Inclui ciclo, resumo IA, status e (quando aplicável) sugestões de visita/perda/venda detectadas pela IA.",
+    responses={
+        200: {"description": "Atendimento encontrado"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Atendimento não encontrado"},
+    },
+)
 def get_attendance(
     attendance_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> AttendanceResponse:
-    """
-    Get an attendance by ID.
-
-    Args:
-        attendance_id: Attendance UUID
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Attendance response
-
-    Raises:
-        HTTPException: If attendance is not found
-    """
     attendance_repo = AttendanceRepository(db)
     attendance = attendance_repo.get_by_id(attendance_id)
 
@@ -322,41 +322,39 @@ def get_attendance(
     return AttendanceResponse.model_validate(attendance)
 
 
-@router.put("/{attendance_id}", response_model=AttendanceResponse)
+@router.put(
+    "/{attendance_id}",
+    response_model=AttendanceResponse,
+    summary="Atualizar atendimento",
+    description="""
+Atualização parcial: apenas os campos enviados são alterados.
+
+**Regras:**
+- **agent_id:** se informado, deve ser usuário com role corretor (400 caso contrário).
+- **Objetivo:** alterar o objective em um atendimento ACTIVE não fecha nem recria ciclo automaticamente; controle é manual.
+- **Status → COMPLETED:** ao marcar como COMPLETED, o resumo (AI) pode ser regenerado.
+- **raw_content / campos de IA:** ao atualizar conteúdo ou campos usados pela IA em atendimento COMPLETED, o resumo pode ser regenerado.
+- **updated_client_status:** atualiza status, tipo de interesse e tipo de imóvel do cliente.
+- **scheduled_visit_at:** se informado e ainda não houver, pode criar visita (conforme repositório).
+
+**Detecção na atualização:** se `raw_content` for enviado, a IA pode devolver na resposta sugestões `detected_visit`, `detected_loss`, `detected_sale` (apenas quando status ainda é ACTIVE). Nada é aplicado automaticamente; usuário confirma no front.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Atendimento atualizado"},
+        400: {"description": "agent_id não é corretor"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Atendimento não encontrado"},
+        422: {"description": "Payload inválido"},
+    },
+)
 def update_attendance(
     attendance_id: uuid.UUID,
     attendance_data: AttendanceUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> AttendanceResponse:
-    """
-    Update an attendance.
-
-    **Important Notes:**
-    - If you update the `objective` field for an ACTIVE attendance, consider whether
-      this should trigger a new cycle instead. The system will not automatically
-      close and recreate attendances on objective updates (manual control).
-    - If `status` is changed to COMPLETED, AI summary will be regenerated automatically.
-    - If `raw_content` or other AI-relevant fields are updated for a COMPLETED attendance,
-      the AI summary will be regenerated.
-
-    **Automatic Behaviors:**
-    - Duration is recalculated automatically if ended_at is updated.
-    - If updated_client_status is provided, client status will be updated.
-    - If scheduled_visit_at is provided and not already set, a visit will be created.
-
-    Args:
-        attendance_id: Attendance UUID
-        attendance_data: Attendance update data (only provided fields will be updated)
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Updated attendance response
-
-    Raises:
-        HTTPException: If attendance is not found
-    """
     # Validate agent_id if being updated
     if attendance_data.agent_id is not None:
         _validate_agent_is_corretor(attendance_data.agent_id, db)
@@ -473,23 +471,22 @@ def update_attendance(
     return response
 
 
-@router.delete("/{attendance_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{attendance_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir atendimento",
+    description="Remove o atendimento do sistema. Operação irreversível. Requer autenticação.",
+    responses={
+        204: {"description": "Atendimento excluído"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Atendimento não encontrado"},
+    },
+)
 def delete_attendance(
     attendance_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> None:
-    """
-    Delete an attendance.
-
-    Args:
-        attendance_id: Attendance UUID
-        db: Database session
-        current_user: Current authenticated user
-
-    Raises:
-        HTTPException: If attendance is not found
-    """
     attendance_repo = AttendanceRepository(db)
     attendance = attendance_repo.get_by_id(attendance_id)
 

@@ -15,9 +15,9 @@ from app.clients.models import ClientStatus, InterestType, PropertyType
 class ClientStatusUpdate(BaseModel):
     """Schema for updating client status from attendance."""
 
-    current_status: ClientStatus | None = None
-    current_interest_type: InterestType | None = None
-    current_property_type: PropertyType | None = None
+    current_status: ClientStatus | None = Field(None, description="Novo estágio do cliente no funil")
+    current_interest_type: InterestType | None = Field(None, description="Tipo de interesse (BUY, RENT, etc.)")
+    current_property_type: PropertyType | None = Field(None, description="Tipo de imóvel de interesse")
 
 
 class AttendanceBase(BaseModel):
@@ -77,127 +77,116 @@ class AttendanceUpdate(BaseModel):
     """
     Schema for updating attendance information.
 
-    **Important Notes:**
-    - All fields are optional to allow partial updates.
-    - If `status` is changed to COMPLETED, AI summary will be regenerated automatically.
-    - If `raw_content` or other AI-relevant fields are updated for a COMPLETED attendance,
-      the AI summary will be regenerated.
-    - If you update the `objective` field for an ACTIVE attendance, consider whether
-      this should trigger a new cycle instead (manual control).
-
+    All fields are optional (partial update). Status → COMPLETED pode regenerar resumo IA.
     """
 
-    client_id: uuid.UUID | None = None
-    agent_id: uuid.UUID | None = None
-    property_id: uuid.UUID | None = None
-    objective: str | None = None
+    client_id: uuid.UUID | None = Field(None, description="ID do cliente")
+    agent_id: uuid.UUID | None = Field(None, description="ID do agente (deve ser corretor)")
+    property_id: uuid.UUID | None = Field(None, description="ID do imóvel")
+    objective: str | None = Field(None, description="Objetivo do ciclo (alterar não recria ciclo automaticamente)")
     raw_content: str | None = Field(
         None,
         min_length=1,
-        max_length=100000,  # 100k chars limit to avoid performance issues
-        description="Raw content of conversations. Maximum 100,000 characters.",
+        max_length=100000,
+        description="Conteúdo bruto da conversa (máx. 100.000 caracteres); atualizar pode disparar detecção visita/perda/venda",
     )
-    ai_summary: str | None = None
-    ai_next_steps: str | None = None
-    status: AttendanceStatus | None = None
-    updated_client_status: ClientStatusUpdate | None = None
-    scheduled_visit_at: datetime | None = None
+    ai_summary: str | None = Field(None, description="Resumo gerado pela IA")
+    ai_next_steps: str | None = Field(None, description="Próximos passos sugeridos pela IA")
+    status: AttendanceStatus | None = Field(None, description="ACTIVE, COMPLETED, LOST ou ABANDONED")
+    updated_client_status: ClientStatusUpdate | None = Field(None, description="Atualizações de status/interesse do cliente")
+    scheduled_visit_at: datetime | None = Field(None, description="Data/hora da visita agendada (pode criar visita)")
 
 
 
 class CycleAction(str, enum.Enum):
-    """Enum for cycle action taken when creating/updating attendance."""
+    """Ação de ciclo ao criar/atualizar atendimento (retornada no POST)."""
+
     NEW_CYCLE_CREATED = "NEW_CYCLE_CREATED"
     CYCLE_UPDATED = "CYCLE_UPDATED"
     PREVIOUS_CYCLE_CLOSED = "PREVIOUS_CYCLE_CLOSED"
 
 
 class DetectedVisitInfo(BaseModel):
-    """Schema for detected visit information from AI analysis."""
-    
-    detected: bool = Field(..., description="Whether a visit intent was detected")
-    scheduled_at: str | None = Field(None, description="ISO format datetime for scheduled visit")
-    date: str | None = Field(None, description="Human-readable date (DD/MM/YYYY)")
-    time: str | None = Field(None, description="Human-readable time (HH:MM)")
-    confidence: float | None = Field(None, description="Confidence score (0-1)")
-    extracted_text: str | None = Field(None, description="Text extracted from conversation")
-    property_id: str | None = Field(None, description="Property ID if mentioned or provided")
-    notes: str | None = Field(None, description="Notes about the detected visit")
+    """Sugestão de visita detectada pela IA (não cria visita automaticamente)."""
+
+    detected: bool = Field(..., description="Se foi detectada intenção de agendar visita")
+    scheduled_at: str | None = Field(None, description="Data/hora sugerida (ISO)")
+    date: str | None = Field(None, description="Data legível (DD/MM/YYYY)")
+    time: str | None = Field(None, description="Hora legível (HH:MM)")
+    confidence: float | None = Field(None, description="Confiança 0–1")
+    extracted_text: str | None = Field(None, description="Trecho da conversa extraído")
+    property_id: str | None = Field(None, description="ID do imóvel se mencionado")
+    notes: str | None = Field(None, description="Observações da detecção")
 
 
 class DetectedLossInfo(BaseModel):
-    """Schema for detected loss information from AI analysis."""
-    
-    detected: bool = Field(..., description="Whether a loss intent was detected")
-    loss_reason: str | None = Field(None, description="Suggested loss reason (LossReason enum value)")
-    loss_stage: str | None = Field(None, description="Suggested loss stage (LossStage enum value)")
-    confidence: float | None = Field(None, description="Confidence score (0-1)")
-    extracted_text: str | None = Field(None, description="Text that indicated loss intent")
-    detailed_reason: str | None = Field(None, description="Detailed explanation extracted from content")
-    client_feedback: str | None = Field(None, description="Client feedback extracted from content")
+    """Sugestão de perda detectada pela IA (atendimento permanece ACTIVE até confirmação)."""
+
+    detected: bool = Field(..., description="Se foi detectada intenção de perda")
+    loss_reason: str | None = Field(None, description="Motivo sugerido (valor do enum LossReason)")
+    loss_stage: str | None = Field(None, description="Estágio sugerido (valor do enum LossStage)")
+    confidence: float | None = Field(None, description="Confiança 0–1")
+    extracted_text: str | None = Field(None, description="Trecho que indicou perda")
+    detailed_reason: str | None = Field(None, description="Explicação detalhada extraída")
+    client_feedback: str | None = Field(None, description="Feedback do cliente extraído")
 
 
 class DetectedSaleInfo(BaseModel):
-    """Schema for detected sale information from AI analysis."""
-    
-    detected: bool = Field(..., description="Whether a sale intent was detected")
-    sale_type: str | None = Field(None, description="Suggested sale type (SALE or RENT)")
-    sale_value: float | None = Field(None, description="Suggested sale value extracted from content")
-    property_id: uuid.UUID | None = Field(None, description="Property ID from attendance or linked visit")
-    confidence: float | None = Field(None, description="Confidence score (0-1)")
-    extracted_text: str | None = Field(None, description="Text that indicated sale intent")
-    payment_method: str | None = Field(None, description="Payment method mentioned (CASH, FINANCING, etc.)")
-    notes: str | None = Field(None, description="Additional information extracted from content")
+    """Sugestão de venda/aluguel detectada pela IA (atendimento permanece ACTIVE até confirmação)."""
+
+    detected: bool = Field(..., description="Se foi detectada intenção de venda/aluguel")
+    sale_type: str | None = Field(None, description="Tipo sugerido (SALE ou RENT)")
+    sale_value: float | None = Field(None, description="Valor sugerido extraído do conteúdo")
+    property_id: uuid.UUID | None = Field(None, description="ID do imóvel do atendimento ou visita vinculada")
+    confidence: float | None = Field(None, description="Confiança 0–1")
+    extracted_text: str | None = Field(None, description="Trecho que indicou venda")
+    payment_method: str | None = Field(None, description="Forma de pagamento mencionada (CASH, FINANCING, etc.)")
+    notes: str | None = Field(None, description="Informações adicionais extraídas")
 
 
 class AttendanceResponse(BaseModel):
     """
-    Schema for attendance response.
-
-    Includes all base fields plus id and timestamps.
+    Resposta de atendimento: campos base, id, timestamps e (quando aplicável) ciclo e sugestões IA.
     """
 
-    id: uuid.UUID
-    client_id: uuid.UUID = Field(..., description="Client ID (required)")
-    agent_id: uuid.UUID = Field(..., description="Agent ID (required, must be corretor)")
-    property_id: uuid.UUID | None = Field(None, description="Property ID (nullable)")
-    objective: str | None = Field(None, description="Clear objective of this interaction cycle")
-    raw_content: str = Field(..., min_length=1, description="Raw content of conversations")
-    ai_summary: str | None = Field(None, description="AI-generated summary")
-    ai_next_steps: str | None = Field(None, description="AI-generated next steps")
+    id: uuid.UUID = Field(..., description="UUID do atendimento")
+    client_id: uuid.UUID = Field(..., description="ID do cliente")
+    agent_id: uuid.UUID = Field(..., description="ID do agente (corretor)")
+    property_id: uuid.UUID | None = Field(None, description="ID do imóvel (opcional)")
+    objective: str | None = Field(None, description="Objetivo do ciclo de interação")
+    raw_content: str = Field(..., min_length=1, description="Conteúdo bruto das conversas")
+    ai_summary: str | None = Field(None, description="Resumo gerado pela IA")
+    ai_next_steps: str | None = Field(None, description="Próximos passos sugeridos pela IA")
     status: AttendanceStatus = Field(
         AttendanceStatus.ACTIVE,
-        description="Attendance status",
+        description="ACTIVE, COMPLETED, LOST ou ABANDONED",
     )
     updated_client_status: ClientStatusUpdate | None = Field(
         None,
-        description="Client status updates (current_status, current_interest_type, current_property_type)",
+        description="Atualizações de status/interesse do cliente (JSON)",
     )
-    scheduled_visit_at: datetime | None = Field(
-        None,
-        description="Scheduled visit date/time (will create a visit if provided)",
-    )
-    created_at: datetime
-    updated_at: datetime
+    scheduled_visit_at: datetime | None = Field(None, description="Data/hora da visita agendada")
+    created_at: datetime = Field(..., description="Data de criação")
+    updated_at: datetime = Field(..., description="Data da última atualização")
     cycle_action: CycleAction | None = Field(
         None,
-        description="Action taken: NEW_CYCLE_CREATED, CYCLE_UPDATED, or PREVIOUS_CYCLE_CLOSED. Only present when creating/updating via POST.",
+        description="Ação no ciclo (NEW_CYCLE_CREATED, CYCLE_UPDATED, PREVIOUS_CYCLE_CLOSED); presente no POST.",
     )
     previous_cycle_id: uuid.UUID | None = Field(
         None,
-        description="ID of the previous cycle that was closed (if any). Only present when NEW_CYCLE_CREATED.",
+        description="ID do ciclo anterior fechado (quando NEW_CYCLE_CREATED)",
     )
     detected_visit: DetectedVisitInfo | None = Field(
         None,
-        description="Visit intent detected by AI from raw_content. Only present when visit intent is detected.",
+        description="Sugestão de visita detectada pela IA (confirmação pelo usuário)",
     )
     detected_loss: DetectedLossInfo | None = Field(
         None,
-        description="Loss intent detected by AI from raw_content. Only present when loss intent is detected.",
+        description="Sugestão de perda detectada pela IA (confirmação pelo usuário)",
     )
     detected_sale: DetectedSaleInfo | None = Field(
         None,
-        description="Sale intent detected by AI from raw_content. Only present when sale intent is detected.",
+        description="Sugestão de venda detectada pela IA (confirmação pelo usuário)",
     )
 
     @model_validator(mode="before")
