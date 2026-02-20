@@ -31,33 +31,29 @@ router = APIRouter(prefix="/clients", tags=["clients"])
     "/",
     response_model=ClientWithClassification,
     status_code=status.HTTP_201_CREATED,
+    summary="Criar cliente",
+    description="""
+Cria um novo cliente no CRM.
+
+**Regras de negócio:**
+- **E-mail único:** se informado, não pode existir outro cliente com o mesmo e-mail.
+- **Valores iniciais:** status padrão `NEW_LEAD`, urgência `MEDIUM`, lead score `30` (ajustados pela IA quando houver primeiro atendimento).
+- **Perfil do cliente:** interesse, orçamento, lead score etc. passam a ser atualizados **automaticamente pela IA** a partir dos atendimentos (ciclo ativo). Não é feita classificação inicial na criação; o primeiro atendimento dispara a análise.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        201: {"description": "Cliente criado"},
+        400: {"description": "E-mail já cadastrado"},
+        401: {"description": "Não autenticado"},
+        422: {"description": "Dados inválidos (ex.: orçamento máx. < mín.)"},
+    },
 )
 def create_client(
     client_data: ClientCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> ClientWithClassification:
-    """
-    Create a new client with AI classification.
-
-    The AI will analyze available information and provide:
-    - Initial lead score (0-100)
-    - Urgency level assessment
-    - Interest type detection (if detectable)
-    - Property type preferences (if detectable)
-    - Recommended next actions
-
-    Args:
-        client_data: Client creation data
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Created client information with AI classification
-
-    Raises:
-        HTTPException: If client with same email already exists
-    """
     repository = ClientRepository(db)
 
     # Check if client with same email already exists (only if email is provided)
@@ -103,29 +99,30 @@ def create_client(
     "/",
     response_model=List[ClientResponse],
     status_code=status.HTTP_200_OK,
+    summary="Listar clientes",
+    description="""
+Lista clientes com paginação e filtros opcionais.
+
+**Parâmetros:**
+- **skip / limit:** paginação (limit máx. 1000).
+- **lead_source:** filtrar por origem do lead (ex.: WHATSAPP, WEBSITE).
+- **search:** busca por nome ou telefone (parcial).
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de clientes"},
+        401: {"description": "Não autenticado"},
+    },
 )
 def list_clients(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
-    lead_source: LeadSource | None = Query(None, description="Filter by lead source"),
-    search: str | None = Query(None, description="Search by name or phone"),
+    skip: int = Query(0, ge=0, description="Registros a pular (paginação)"),
+    limit: int = Query(100, ge=1, le=1000, description="Máximo de registros a retornar"),
+    lead_source: LeadSource | None = Query(None, description="Filtrar por origem do lead"),
+    search: str | None = Query(None, description="Buscar por nome ou telefone"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[ClientResponse]:
-    """
-    List all clients with optional filtering and pagination.
-
-    Args:
-        skip: Number of records to skip
-        limit: Maximum number of records to return
-        lead_source: Optional filter by lead source
-        search: Optional search query to filter by name or phone
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        List of client information
-    """
     repository = ClientRepository(db)
     clients = repository.get_all(skip=skip, limit=limit, lead_source=lead_source, search=search)
     return [ClientResponse.model_validate(client) for client in clients]
@@ -135,26 +132,19 @@ def list_clients(
     "/{client_id}",
     response_model=ClientResponse,
     status_code=status.HTTP_200_OK,
+    summary="Buscar cliente por ID",
+    description="Retorna um cliente pelo UUID. Inclui perfil derivado (status, lead score, urgência, interesse, orçamento) e metadados de derivação pela IA (última derivação, quantidade de atendimentos considerados).",
+    responses={
+        200: {"description": "Cliente encontrado"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+    },
 )
 def get_client(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> ClientResponse:
-    """
-    Get client by ID.
-
-    Args:
-        client_id: Client UUID
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Client information
-
-    Raises:
-        HTTPException: If client not found
-    """
     repository = ClientRepository(db)
     client = repository.get_by_id(client_id)
     if not client:
@@ -169,6 +159,22 @@ def get_client(
     "/{client_id}",
     response_model=ClientResponse,
     status_code=status.HTTP_200_OK,
+    summary="Atualizar cliente",
+    description="""
+Atualização parcial: apenas os campos enviados são alterados.
+
+**Regras:**
+- **E-mail:** ao alterar, não pode coincidir com o de outro cliente.
+- **Lead score:** controlado pela IA; atualizações manuais podem ser ignoradas (o sistema prioriza a derivação a partir dos atendimentos).
+- **Orçamento:** `current_budget_max` deve ser ≥ `current_budget_min`.
+    """.strip(),
+    responses={
+        200: {"description": "Cliente atualizado"},
+        400: {"description": "E-mail já usado por outro cliente"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+        422: {"description": "Dados inválidos (ex.: orçamento)"},
+    },
 )
 def update_client(
     client_id: uuid.UUID,
@@ -176,21 +182,6 @@ def update_client(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> ClientResponse:
-    """
-    Update client information.
-
-    Args:
-        client_id: Client UUID
-        client_data: Update data (only provided fields will be updated)
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Updated client information
-
-    Raises:
-        HTTPException: If client not found or email already exists
-    """
     repository = ClientRepository(db)
     client = repository.get_by_id(client_id)
     if not client:
@@ -215,23 +206,19 @@ def update_client(
 @router.delete(
     "/{client_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir cliente",
+    description="Remove o cliente do sistema. Operação irreversível. Dados relacionados (atendimentos, visitas, vendas, perdas) podem ser tratados conforme regras do repositório.",
+    responses={
+        204: {"description": "Cliente excluído"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+    },
 )
 def delete_client(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> None:
-    """
-    Delete a client.
-
-    Args:
-        client_id: Client UUID
-        db: Database session
-        current_user: Current authenticated user
-
-    Raises:
-        HTTPException: If client not found
-    """
     repository = ClientRepository(db)
     client = repository.get_by_id(client_id)
     if not client:
@@ -246,6 +233,19 @@ def delete_client(
     "/{client_id}/classify",
     response_model=LeadClassificationResult,
     status_code=status.HTTP_200_OK,
+    summary="Classificação atual do cliente (IA)",
+    description="""
+Retorna o **estado atual** do cliente já derivado pela IA (não executa nova análise).
+
+**Regra importante:** o perfil do cliente (lead score, urgência, interesse, status) é atualizado **automaticamente** pelo **State Derivation Service** a partir **apenas do ciclo de atendimento ACTIVE**. Sempre que há novo atendimento ou atualização de conversa, a IA analisa e consolida os sinais.
+
+Este endpoint apenas devolve o estado já calculado: score, urgência, tipo de interesse, tipo de imóvel, status sugerido, motivo, indicadores e ações recomendadas.
+    """.strip(),
+    responses={
+        200: {"description": "Classificação atual derivada da IA"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+    },
 )
 def classify_lead(
     client_id: uuid.UUID,
@@ -253,33 +253,6 @@ def classify_lead(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> LeadClassificationResult:
-    """
-    Get current client classification based on AI analysis of all attendances.
-    
-    NOTE: This endpoint returns the current state derived from AI analysis.
-    The system automatically detects and updates client profile whenever:
-    - A new attendance is created
-    - An attendance is updated
-    - An attendance is completed
-    
-    The client's profile (interest, budget, urgency, lead_score) is continuously
-    updated by the AI through the State Derivation Service, which analyzes all
-    attendance summaries and consolidates signals.
-    
-    This endpoint simply returns the current derived state, not a new classification.
-
-    Args:
-        client_id: Client UUID
-        request: Optional additional context (not used, kept for compatibility)
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Current AI-derived classification result
-
-    Raises:
-        HTTPException: If client not found
-    """
     repository = ClientRepository(db)
     client = repository.get_by_id(client_id)
     
@@ -329,6 +302,18 @@ def classify_lead(
     "/{client_id}/apply-classification",
     response_model=ClientResponse,
     status_code=status.HTTP_200_OK,
+    summary="Aplicar classificação ao cliente",
+    description="""
+Aplica ao cliente os valores de uma classificação (ex.: retornada por **classify** ou por sugestões da IA).
+
+**Atualiza:** lead score, urgência, tipo de interesse e tipo de imóvel. O repositório aceita atualização de lead score vinda desta rota (`allow_ai_lead_score_update=True`). Útil para aplicar sugestões da IA ou correções manuais aprovadas.
+    """.strip(),
+    responses={
+        200: {"description": "Cliente atualizado com a classificação"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+        422: {"description": "Payload de classificação inválido"},
+    },
 )
 def apply_classification(
     client_id: uuid.UUID,
@@ -336,23 +321,6 @@ def apply_classification(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> ClientResponse:
-    """
-    Apply an AI classification to a client.
-
-    This endpoint updates the client with the AI classification values.
-
-    Args:
-        client_id: Client UUID
-        classification: AI classification to apply
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Updated client information
-
-    Raises:
-        HTTPException: If client not found
-    """
     from app.clients.schemas import ClientUpdate
     
     repository = ClientRepository(db)
@@ -386,34 +354,24 @@ def apply_classification(
     "/{client_id}/recommended-properties",
     response_model=List[PropertyResponse],
     status_code=status.HTTP_200_OK,
+    summary="Imóveis recomendados para o cliente",
+    description="""
+Lista imóveis que batem com o perfil atual do cliente.
+
+**Critérios (do cliente):** tipo de interesse (compra/aluguel), tipo de imóvel, cidade de interesse, faixa de orçamento (mín./máx.). Se **nenhum** desses estiver preenchido, retorna lista vazia. O limite é configurável (padrão 5, máx. 20).
+    """.strip(),
+    responses={
+        200: {"description": "Lista de imóveis recomendados (pode ser vazia)"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+    },
 )
 def get_recommended_properties(
     client_id: uuid.UUID,
-    limit: int = Query(5, ge=1, le=20, description="Maximum number of properties to return"),
+    limit: int = Query(5, ge=1, le=20, description="Máximo de imóveis a retornar (1–20)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[PropertyResponse]:
-    """
-    Get recommended properties for a client based on their preferences.
-    
-    Uses client's current preferences:
-    - current_interest_type (BUY/RENT)
-    - current_property_type (HOUSE/APARTMENT/etc)
-    - current_city_interest
-    - current_budget_min and current_budget_max
-    
-    Args:
-        client_id: Client UUID
-        limit: Maximum number of properties to return (default: 5, max: 20)
-        db: Database session
-        current_user: Current authenticated user
-        
-    Returns:
-        List of recommended properties matching client preferences
-        
-    Raises:
-        HTTPException: If client not found
-    """
     client_repo = ClientRepository(db)
     client = client_repo.get_by_id(client_id)
     

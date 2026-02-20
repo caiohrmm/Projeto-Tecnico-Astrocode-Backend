@@ -18,10 +18,10 @@ from app.clients.models import (
 class ClientBase(BaseModel):
     """Base schema with common client fields."""
 
-    name: str = Field(..., min_length=1, max_length=255)
-    phone: str = Field(..., min_length=1, max_length=20)
-    email: str | None = Field(None, max_length=255)
-    lead_source: LeadSource
+    name: str = Field(..., min_length=1, max_length=255, description="Nome do cliente")
+    phone: str = Field(..., min_length=1, max_length=20, description="Telefone")
+    email: str | None = Field(None, max_length=255, description="E-mail (único no sistema)")
+    lead_source: LeadSource = Field(..., description="Origem do lead (ex.: WHATSAPP, WEBSITE)")
 
     @field_validator("email")
     @classmethod
@@ -128,37 +128,37 @@ class ClientUpdate(BaseModel):
     All fields are optional to allow partial updates.
     """
 
-    name: str | None = Field(None, min_length=1, max_length=255)
-    phone: str | None = Field(None, min_length=1, max_length=20)
-    email: EmailStr | None = None
-    lead_source: LeadSource | None = None
+    name: str | None = Field(None, min_length=1, max_length=255, description="Nome do cliente")
+    phone: str | None = Field(None, min_length=1, max_length=20, description="Telefone")
+    email: EmailStr | None = Field(None, description="E-mail (deve ser único)")
+    lead_source: LeadSource | None = Field(None, description="Origem do lead")
 
     # Funnel Status & Scoring
-    current_status: ClientStatus | None = None
+    current_status: ClientStatus | None = Field(None, description="Estágio no funil de vendas")
     current_lead_score: int | None = Field(
         None,
         ge=0,
         le=100,
-        description="Lead score (controlled exclusively by AI - ignored if provided manually)",
+        description="Lead score 0–100 (controlado pela IA; atualizações manuais podem ser ignoradas)",
     )
-    current_urgency_level: UrgencyLevel | None = None
+    current_urgency_level: UrgencyLevel | None = Field(None, description="Nível de urgência (LOW, MEDIUM, HIGH, IMMEDIATE)")
 
     # Client Interest
-    current_interest_type: InterestType | None = None
-    current_property_type: PropertyType | None = None
-    current_budget_min: Decimal | None = Field(None, ge=0)
-    current_budget_max: Decimal | None = Field(None, ge=0)
-    current_city_interest: str | None = Field(None, max_length=255)
+    current_interest_type: InterestType | None = Field(None, description="Tipo de interesse (BUY, RENT, SELL, INVEST)")
+    current_property_type: PropertyType | None = Field(None, description="Tipo de imóvel de interesse")
+    current_budget_min: Decimal | None = Field(None, ge=0, description="Orçamento mínimo")
+    current_budget_max: Decimal | None = Field(None, ge=0, description="Orçamento máximo (deve ser ≥ mínimo)")
+    current_city_interest: str | None = Field(None, max_length=255, description="Cidade de interesse")
 
     # Relationship Management
-    first_contact_at: datetime | None = None
-    last_contact_at: datetime | None = None
-    summary_notes: str | None = None
-    
+    first_contact_at: datetime | None = Field(None, description="Data do primeiro contato")
+    last_contact_at: datetime | None = Field(None, description="Data do último contato")
+    summary_notes: str | None = Field(None, description="Resumo/notas sobre o cliente")
+
     # State Derivation Tracking (set automatically by system)
-    last_state_derivation_at: datetime | None = None
-    state_derivation_count: int | None = Field(None, ge=0)
-    state_derived_from_attendances_count: int | None = Field(None, ge=0)
+    last_state_derivation_at: datetime | None = Field(None, description="Última derivação de estado pela IA")
+    state_derivation_count: int | None = Field(None, ge=0, description="Quantidade de derivações realizadas")
+    state_derived_from_attendances_count: int | None = Field(None, ge=0, description="Atendimentos usados na última derivação")
 
     @field_validator("current_budget_max")
     @classmethod
@@ -180,51 +180,48 @@ class ClientResponse(ClientBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: uuid.UUID = Field(..., description="UUID do cliente")
 
     # Funnel Status & Scoring
-    current_status: ClientStatus | None = None
-    current_lead_score: int | None = None
-    current_urgency_level: UrgencyLevel | None = None
+    current_status: ClientStatus | None = Field(None, description="Estágio atual no funil")
+    current_lead_score: int | None = Field(None, description="Score do lead 0–100 (derivado pela IA)")
+    current_urgency_level: UrgencyLevel | None = Field(None, description="Nível de urgência")
 
     # Commercial Assignment
-    assigned_agent_id: uuid.UUID | None = None
+    assigned_agent_id: uuid.UUID | None = Field(None, description="ID do agente atribuído")
 
     # Client Interest
-    current_interest_type: InterestType | None = None
-    current_property_type: PropertyType | None = None
-    current_budget_min: Decimal | None = None
-    current_budget_max: Decimal | None = None
-    current_city_interest: str | None = None
+    current_interest_type: InterestType | None = Field(None, description="Tipo de interesse (compra/aluguel/etc.)")
+    current_property_type: PropertyType | None = Field(None, description="Tipo de imóvel preferido")
+    current_budget_min: Decimal | None = Field(None, description="Orçamento mínimo")
+    current_budget_max: Decimal | None = Field(None, description="Orçamento máximo")
+    current_city_interest: str | None = Field(None, description="Cidade de interesse")
 
     # Relationship Management
-    first_contact_at: datetime | None = None
-    last_contact_at: datetime | None = None
-    summary_notes: str | None = None
-    initial_message: str | None = Field(
-        None,
-        description="First message from the client",
-    )
+    first_contact_at: datetime | None = Field(None, description="Primeiro contato")
+    last_contact_at: datetime | None = Field(None, description="Último contato")
+    summary_notes: str | None = Field(None, description="Notas resumidas")
+    initial_message: str | None = Field(None, description="Primeira mensagem do cliente")
 
     # State Derivation Tracking (for visibility/transparency)
     last_state_derivation_at: datetime | None = Field(
         None,
-        description="Timestamp of last automatic state derivation from AI signals",
+        description="Data/hora da última derivação de estado pela IA",
     )
     state_derivation_count: int = Field(
         0,
         ge=0,
-        description="Number of times client state was automatically derived from AI signals",
+        description="Quantidade de vezes que o estado foi derivado pela IA",
     )
     state_derived_from_attendances_count: int | None = Field(
         None,
         ge=0,
-        description="Number of attendances used in the last state derivation",
+        description="Quantidade de atendimentos usados na última derivação",
     )
 
     # Timestamps
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime = Field(..., description="Data de criação")
+    updated_at: datetime = Field(..., description="Data da última atualização")
 
 
 class ClientInDB(ClientResponse):
@@ -239,29 +236,32 @@ class ClientInDB(ClientResponse):
 
 class LeadClassificationResult(BaseModel):
     """Schema for AI lead classification result."""
-    
-    lead_score: int = Field(..., ge=0, le=100, description="Lead score 0-100")
-    urgency_level: UrgencyLevel
-    interest_type: InterestType | None = None
-    property_type: PropertyType | None = None
-    suggested_status: ClientStatus = ClientStatus.NEW_LEAD
-    
-    classification_reason: str = Field(..., description="AI explanation for classification")
-    key_indicators: list[str] = Field(default_factory=list, description="Key indicators detected")
-    recommended_actions: list[str] = Field(default_factory=list, description="Recommended next actions")
-    confidence: float = Field(..., ge=0, le=1, description="Classification confidence 0-1")
+
+    lead_score: int = Field(..., ge=0, le=100, description="Score do lead 0–100")
+    urgency_level: UrgencyLevel = Field(..., description="Nível de urgência (LOW, MEDIUM, HIGH, IMMEDIATE)")
+    interest_type: InterestType | None = Field(None, description="Tipo de interesse (BUY, RENT, etc.)")
+    property_type: PropertyType | None = Field(None, description="Tipo de imóvel preferido")
+    suggested_status: ClientStatus = Field(ClientStatus.NEW_LEAD, description="Status sugerido no funil")
+
+    classification_reason: str = Field(..., description="Motivo/explicação da classificação pela IA")
+    key_indicators: list[str] = Field(default_factory=list, description="Indicadores-chave detectados")
+    recommended_actions: list[str] = Field(default_factory=list, description="Ações recomendadas")
+    confidence: float = Field(..., ge=0, le=1, description="Confiança da classificação 0–1")
 
 
 class ClientWithClassification(ClientResponse):
     """Schema for client response with AI classification details."""
-    
-    ai_classification: LeadClassificationResult | None = None
+
+    ai_classification: LeadClassificationResult | None = Field(
+        None,
+        description="Classificação da IA (na criação retorna null; perfil é atualizado pelos atendimentos)",
+    )
 
 
 class ClassifyLeadRequest(BaseModel):
-    """Schema for lead classification request."""
-    
-    initial_message: str | None = Field(None, description="Message to analyze")
-    notes: str | None = Field(None, description="Additional notes")
+    """Schema for lead classification request (opcional; mantido por compatibilidade)."""
+
+    initial_message: str | None = Field(None, description="Mensagem para análise (não usado na derivação atual)")
+    notes: str | None = Field(None, description="Notas adicionais")
 
 
