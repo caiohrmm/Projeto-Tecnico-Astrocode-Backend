@@ -3,7 +3,7 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_active_user, get_current_manager
@@ -20,6 +20,22 @@ router = APIRouter(prefix="/users", tags=["users"])
     "/{user_id}/roles",
     response_model=UserResponse,
     status_code=status.HTTP_200_OK,
+    summary="Atualizar roles do usuário",
+    description="""
+Atribui ou altera as roles de um usuário. Apenas **gestores** podem executar.
+
+**Roles válidas:** `atendente`, `corretor`, `gestor`. O body é uma lista de strings (ex.: `["atendente", "corretor"]`). Todas as roles informadas devem existir no banco; nomes inválidos ou inexistentes retornam 400.
+
+Requer autenticação (gestor).
+    """.strip(),
+    responses={
+        200: {"description": "Usuário atualizado com novas roles"},
+        400: {"description": "Roles inválidas ou não encontradas no banco"},
+        401: {"description": "Não autenticado"},
+        403: {"description": "Sem permissão (requer gestor)"},
+        404: {"description": "Usuário não encontrado"},
+        422: {"description": "Payload inválido"},
+    },
 )
 def update_user_roles(
     user_id: uuid.UUID,
@@ -27,24 +43,6 @@ def update_user_roles(
     db: Session = Depends(get_db),
     current_manager: User = Depends(get_current_manager),
 ) -> UserResponse:
-    """
-    Update user roles (only managers can perform this action).
-
-    This endpoint allows managers to assign or change roles for any user.
-    Valid roles: 'atendente', 'corretor', 'gestor'
-
-    Args:
-        user_id: UUID of the user to update
-        role_names: List of role names to assign (e.g., ['atendente', 'corretor'])
-        db: Database session
-        current_manager: Current authenticated manager (gestor role required)
-
-    Returns:
-        Updated user information with new roles
-
-    Raises:
-        HTTPException: If user not found, invalid roles, or current user is not a manager
-    """
     user_repo = UserRepository(db)
     role_repo = RoleRepository(db)
 
@@ -85,25 +83,24 @@ def update_user_roles(
     "/",
     response_model=List[UserResponse],
     status_code=status.HTTP_200_OK,
+    summary="Listar usuários",
+    description="""
+Lista todos os usuários com paginação. Apenas **gestores** podem acessar.
+
+Requer autenticação (gestor).
+    """.strip(),
+    responses={
+        200: {"description": "Lista de usuários"},
+        401: {"description": "Não autenticado"},
+        403: {"description": "Sem permissão (requer gestor)"},
+    },
 )
 def list_users(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0, description="Registros a pular (paginação)"),
+    limit: int = Query(100, ge=1, le=1000, description="Máximo de registros"),
     db: Session = Depends(get_db),
     current_manager: User = Depends(get_current_manager),
 ) -> List[UserResponse]:
-    """
-    List all users (only managers can perform this action).
-
-    Args:
-        skip: Number of records to skip
-        limit: Maximum number of records to return
-        db: Database session
-        current_manager: Current authenticated manager (gestor role required)
-
-    Returns:
-        List of user information
-    """
     user_repo = UserRepository(db)
     users = user_repo.get_all(skip=skip, limit=limit)
     return [UserResponse.model_validate(user) for user in users]
@@ -113,26 +110,21 @@ def list_users(
     "/corretores",
     response_model=List[UserResponse],
     status_code=status.HTTP_200_OK,
+    summary="Listar corretores",
+    description="""
+Lista usuários com role **corretor** que estão ativos. Qualquer usuário autenticado pode acessar (não só gestores), para uso em seleção de agente em atendimentos, imóveis, visitas, etc.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de corretores ativos"},
+        401: {"description": "Não autenticado"},
+    },
 )
 def list_corretores(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[UserResponse]:
-    """
-    List all users with 'corretor' role.
-    
-    This endpoint is accessible to any authenticated user (not just managers),
-    as it's needed for selecting agents when creating attendances, properties, etc.
-    
-    IMPORTANT: This route must come BEFORE /{user_id} to avoid route conflicts.
-    
-    Args:
-        db: Database session
-        current_user: Current authenticated user (any role)
-    
-    Returns:
-        List of active users with 'corretor' role
-    """
     user_repo = UserRepository(db)
     role_repo = RoleRepository(db)
     
@@ -154,26 +146,20 @@ def list_corretores(
     "/{user_id}",
     response_model=UserResponse,
     status_code=status.HTTP_200_OK,
+    summary="Buscar usuário por ID",
+    description="Retorna um usuário pelo UUID. Apenas **gestores** podem acessar. Inclui e-mail, nome, is_active, roles e timestamps.",
+    responses={
+        200: {"description": "Usuário encontrado"},
+        401: {"description": "Não autenticado"},
+        403: {"description": "Sem permissão (requer gestor)"},
+        404: {"description": "Usuário não encontrado"},
+    },
 )
 def get_user(
     user_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_manager: User = Depends(get_current_manager),
 ) -> UserResponse:
-    """
-    Get user by ID (only managers can perform this action).
-
-    Args:
-        user_id: UUID of the user
-        db: Database session
-        current_manager: Current authenticated manager (gestor role required)
-
-    Returns:
-        User information
-
-    Raises:
-        HTTPException: If user not found
-    """
     user_repo = UserRepository(db)
     user = user_repo.get_by_id(user_id)
     if not user:
@@ -188,6 +174,22 @@ def get_user(
     "/{user_id}",
     response_model=UserResponse,
     status_code=status.HTTP_200_OK,
+    summary="Atualizar usuário",
+    description="""
+Atualização parcial de usuário (e-mail, nome completo, is_active). Apenas **gestores** podem executar.
+
+**Regra:** o gestor não pode desativar a si mesmo (is_active = false no próprio usuário retorna 400).
+
+Requer autenticação (gestor).
+    """.strip(),
+    responses={
+        200: {"description": "Usuário atualizado"},
+        400: {"description": "Tentativa de desativar a própria conta"},
+        401: {"description": "Não autenticado"},
+        403: {"description": "Sem permissão (requer gestor)"},
+        404: {"description": "Usuário não encontrado"},
+        422: {"description": "Dados inválidos"},
+    },
 )
 def update_user(
     user_id: uuid.UUID,
@@ -195,26 +197,6 @@ def update_user(
     db: Session = Depends(get_db),
     current_manager: User = Depends(get_current_manager),
 ) -> UserResponse:
-    """
-    Update user information (only managers can perform this action).
-
-    This endpoint allows managers to update user information including:
-    - Email
-    - Full name
-    - Active status (is_active)
-
-    Args:
-        user_id: UUID of the user to update
-        user_data: User update data (all fields optional)
-        db: Database session
-        current_manager: Current authenticated manager (gestor role required)
-
-    Returns:
-        Updated user information
-
-    Raises:
-        HTTPException: If user not found or current user is not a manager
-    """
     user_repo = UserRepository(db)
 
     # Get user to update
