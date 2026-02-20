@@ -261,17 +261,24 @@ class ClientStateDerivationService:
                 else:
                     return ClientStatus.CONTACTED
             else:
-                # Cold lead → new lead or contacted
-                return ClientStatus.NEW_LEAD
+                # Cold lead: já existe conversa no ciclo → Contactado (não manter Novo Lead)
+                return ClientStatus.CONTACTED
         
-        # Default: If has interest type and budget → CONTACTED, else NEW_LEAD
+        # Default: Qualquer sinal de interesse no ciclo ativo → pelo menos CONTACTED
         if ai_summary.interest_type_detected:
             if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
-                return ClientStatus.CONTACTED
-            else:
-                return ClientStatus.NEW_LEAD
+                return ClientStatus.QUALIFIED
+            # Cliente demonstrou tipo de interesse (comprar/alugar) → Contactado
+            return ClientStatus.CONTACTED
+        if ai_summary.budget_min_detected or ai_summary.budget_max_detected:
+            return ClientStatus.CONTACTED
+        if ai_summary.key_points and isinstance(ai_summary.key_points, dict) and (
+            ai_summary.key_points.get("city") or ai_summary.key_points.get("property_type")
+        ):
+            return ClientStatus.CONTACTED
         
-        return None  # No status detected
+        # Resumo da IA existe para este ciclo ativo → houve contato, avançar de Novo Lead para Contactado
+        return ClientStatus.CONTACTED
     
     @staticmethod
     def get_all_signals_for_client(
