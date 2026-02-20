@@ -55,8 +55,8 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
 
     # CORS: comma-separated list of allowed origins (e.g. https://meu-app.vercel.app)
-    # If set, replaces default localhost origins in production.
-    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
+    # Env CORS_ORIGINS overrides this. Default includes localhost + frontend em produção (Vercel).
+    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,https://frontend-astrocode.vercel.app"
 
     # SMTP for password reset emails (optional; if not set, link is logged to console)
     smtp_host: str = ""
@@ -67,8 +67,12 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
 
     def get_cors_origins_list(self) -> list[str]:
-        """Return CORS allowed origins as a list (from comma-separated env)."""
-        return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+        """Return CORS allowed origins (from env + frontend produção sempre incluído)."""
+        from_env = [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+        production_frontend = "https://frontend-astrocode.vercel.app"
+        if production_frontend not in from_env:
+            from_env.append(production_frontend)
+        return from_env
 
 
 @lru_cache
