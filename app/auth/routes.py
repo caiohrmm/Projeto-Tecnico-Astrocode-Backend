@@ -1,6 +1,6 @@
 """Authentication routes."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
@@ -28,24 +28,18 @@ security = HTTPBearer()
     "/login",
     response_model=TokenResponse,
     status_code=status.HTTP_200_OK,
+    summary="Login",
+    description="Autentica com e-mail e senha. Retorna um token JWT para usar no header **Authorization: Bearer &lt;token&gt;** nas demais requisições.",
+    responses={
+        200: {"description": "Token JWT retornado"},
+        401: {"description": "Credenciais inválidas"},
+        422: {"description": "Dados de entrada inválidos"},
+    },
 )
 def login(
     login_data: LoginRequest,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
-    """
-    Authenticate user and return JWT token.
-
-    Args:
-        login_data: Login credentials (email and password)
-        db: Database session
-
-    Returns:
-        JWT access token and token type
-
-    Raises:
-        HTTPException: If credentials are invalid
-    """
     auth_service = AuthService(db)
     token_data = auth_service.authenticate_user(
         email=login_data.email,
@@ -58,29 +52,21 @@ def login(
     "/register",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Registrar usuário (gestor)",
+    description="Cria um novo usuário. **Apenas gestores** podem usar este endpoint. Permite definir roles (ex.: atendente, gestor). Requer token de gestor no header Authorization.",
+    responses={
+        201: {"description": "Usuário criado"},
+        400: {"description": "E-mail já cadastrado"},
+        401: {"description": "Não autenticado"},
+        403: {"description": "Acesso negado (apenas gestor)"},
+        422: {"description": "Dados de entrada inválidos"},
+    },
 )
 def register_user(
     user_data: UserCreate,
     db: Session = Depends(get_db),
     current_manager: User = Depends(get_current_manager),
 ) -> UserResponse:
-    """
-    Register a new user (only managers can create users).
-
-    This endpoint is protected and only accessible to users with the 'gestor' role.
-    The manager can specify which roles to assign to the new user.
-
-    Args:
-        user_data: User creation data (email, password, full_name, role_names)
-        db: Database session
-        current_manager: Current authenticated manager (gestor role required)
-
-    Returns:
-        Created user information (without password)
-
-    Raises:
-        HTTPException: If email already exists or user doesn't have gestor role
-    """
     auth_service = AuthService(db)
     
     # Register user (this will create user and assign roles if provided)
@@ -103,19 +89,16 @@ def register_user(
     "/me",
     response_model=UserResponse,
     status_code=status.HTTP_200_OK,
+    summary="Usuário atual",
+    description="Retorna os dados do usuário autenticado (a partir do token JWT). Requer Authorization: Bearer <token>.",
+    responses={
+        200: {"description": "Dados do usuário"},
+        401: {"description": "Token inválido ou ausente"},
+    },
 )
 def get_current_user_info(
     current_user: User = Depends(get_current_active_user),
 ) -> UserResponse:
-    """
-    Get current authenticated user information.
-
-    Args:
-        current_user: Current authenticated user from dependency
-
-    Returns:
-        Current user information
-    """
     return UserResponse.model_validate(current_user)
 
 
@@ -123,28 +106,18 @@ def get_current_user_info(
     "/public/register",
     response_model=TokenResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Registro público",
+    description="Cadastro aberto: qualquer um pode se registrar. O novo usuário recebe automaticamente a role **atendente**. Retorna o token JWT para login imediato. Roles podem ser alteradas depois por um gestor.",
+    responses={
+        201: {"description": "Usuário criado e token retornado"},
+        400: {"description": "E-mail já cadastrado"},
+        422: {"description": "Dados de entrada inválidos"},
+    },
 )
 def public_register(
     user_data: UserCreate,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
-    """
-    Public user registration endpoint.
-    
-    Anyone can register, but all users are automatically assigned the 'atendente' role.
-    Only managers can change user roles later via the role management endpoint.
-
-    Args:
-        user_data: User creation data (email, password, full_name)
-                   Note: role_names will be ignored and set to ['atendente']
-        db: Database session
-
-    Returns:
-        JWT access token and token type
-
-    Raises:
-        HTTPException: If email already exists
-    """
     from fastapi import HTTPException
     
     auth_service = AuthService(db)
@@ -168,16 +141,17 @@ def public_register(
     "/forgot-password",
     response_model=ForgotPasswordResponse,
     status_code=status.HTTP_200_OK,
+    summary="Esqueci minha senha",
+    description="Envia um e-mail com link para redefinir a senha, se o e-mail existir na base. Por segurança, a resposta é sempre a mesma (não revela se o e-mail existe).",
+    responses={
+        200: {"description": "Mensagem genérica (sempre igual)"},
+        422: {"description": "E-mail inválido"},
+    },
 )
 def forgot_password(
     request: ForgotPasswordRequest,
     db: Session = Depends(get_db),
 ) -> ForgotPasswordResponse:
-    """
-    Request password reset. Sends email with reset link if user exists.
-
-    Always returns same message for security (no email enumeration).
-    """
     auth_service = AuthService(db)
     auth_service.request_password_reset(request.email)
     return ForgotPasswordResponse()
@@ -187,14 +161,18 @@ def forgot_password(
     "/reset-password",
     response_model=ResetPasswordResponse,
     status_code=status.HTTP_200_OK,
+    summary="Redefinir senha",
+    description="Altera a senha usando o token recebido no link do e-mail (enviado por **Esqueci minha senha**).",
+    responses={
+        200: {"description": "Senha alterada com sucesso"},
+        400: {"description": "Token inválido ou expirado"},
+        422: {"description": "Dados inválidos (ex.: senha curta)"},
+    },
 )
 def reset_password(
     request: ResetPasswordRequest,
     db: Session = Depends(get_db),
 ) -> ResetPasswordResponse:
-    """
-    Reset password using token from email link.
-    """
     auth_service = AuthService(db)
     auth_service.reset_password(
         token=request.token,
@@ -204,18 +182,15 @@ def reset_password(
 
 
 # Google OAuth routes
-@router.get("/google/login")
+@router.get(
+    "/google/login",
+    summary="Login com Google",
+    description="Redireciona o usuário para a tela de autorização do Google. Após aprovar, o usuário volta em **/auth/google/callback** e depois é redirecionado ao frontend com o token na URL.",
+    responses={302: {"description": "Redirecionamento para Google"}},
+)
 async def google_login(
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    """
-    Initiate Google OAuth login flow.
-
-    Redirects user to Google authorization page.
-
-    Returns:
-        Redirect response to Google OAuth authorization URL
-    """
     oauth_service = OAuthService(db)
 
     # Use redirect URI from settings (must match Google Cloud Console exactly)
@@ -224,23 +199,20 @@ async def google_login(
     return RedirectResponse(url=authorization_url)
 
 
-@router.get("/google/callback")
+@router.get(
+    "/google/callback",
+    summary="Callback do Google OAuth",
+    description="Chamado pelo Google após o login. Troca o `code` por token, cria/atualiza o usuário e redireciona para o frontend com o token no fragmento da URL (ex.: frontend/auth/google/callback#token=...).",
+    responses={
+        302: {"description": "Redirecionamento para o frontend com token"},
+        400: {"description": "Code inválido ou erro no OAuth"},
+    },
+)
 async def google_callback(
     code: str,
     state: str | None = None,
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    """
-    Handle Google OAuth callback and redirect to frontend with token.
-
-    Args:
-        code: Authorization code from Google
-        state: State parameter for CSRF protection
-        db: Database session
-
-    Returns:
-        Redirect response to frontend with token in URL fragment
-    """
     from app.config.settings import get_settings
     
     settings = get_settings()

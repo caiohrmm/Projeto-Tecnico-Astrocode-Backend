@@ -4,54 +4,48 @@ from pydantic import BaseModel, EmailStr, Field
 
 
 class LoginRequest(BaseModel):
-    """
-    Schema for login request.
+    """Credenciais de login."""
 
-    Attributes:
-        email: User email address
-        password: User password
-    """
-
-    email: EmailStr
-    password: str = Field(..., min_length=1)
+    email: EmailStr = Field(..., description="E-mail do usuário")
+    password: str = Field(..., min_length=1, description="Senha")
 
 
 class TokenResponse(BaseModel):
-    """
-    Schema for token response.
+    """Resposta com token JWT para uso no header Authorization."""
 
-    Attributes:
-        access_token: JWT access token
-        token_type: Token type (typically "bearer")
-    """
-
-    access_token: str
-    token_type: str = "bearer"
+    access_token: str = Field(..., description="Token JWT")
+    token_type: str = Field(default="bearer", description="Tipo do token (sempre bearer)")
 
 
 class ForgotPasswordRequest(BaseModel):
-    """Schema for forgot password request."""
+    """Solicitação de recuperação de senha."""
 
-    email: EmailStr
+    email: EmailStr = Field(..., description="E-mail do usuário que esqueceu a senha")
 
 
 class ResetPasswordRequest(BaseModel):
-    """Schema for reset password request."""
+    """Dados para redefinir a senha (link do e-mail)."""
 
-    token: str = Field(..., min_length=1)
-    new_password: str = Field(..., min_length=6)
+    token: str = Field(..., min_length=1, description="Token recebido por e-mail")
+    new_password: str = Field(..., min_length=6, description="Nova senha (mín. 6 caracteres)")
 
 
 class ForgotPasswordResponse(BaseModel):
-    """Schema for forgot password response (generic for security)."""
+    """Resposta genérica por segurança (não revela se o e-mail existe)."""
 
-    message: str = "Se o email existir em nossa base, você receberá um link para redefinir sua senha."
+    message: str = Field(
+        default="Se o email existir em nossa base, você receberá um link para redefinir sua senha.",
+        description="Mensagem exibida ao usuário",
+    )
 
 
 class ResetPasswordResponse(BaseModel):
-    """Schema for reset password response."""
+    """Confirmação de senha alterada."""
 
-    message: str = "Senha alterada com sucesso. Faça login com a nova senha."
+    message: str = Field(
+        default="Senha alterada com sucesso. Faça login com a nova senha.",
+        description="Mensagem de sucesso",
+    )
 
 
 class TokenData(BaseModel):

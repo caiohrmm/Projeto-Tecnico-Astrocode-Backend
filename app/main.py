@@ -46,11 +46,25 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title=settings.app_name,
-        description="Backend de auxílio ao atendimento em imobiliárias",
+        description="""
+API REST do **CRM Imobiliário** com IA integrada (Google Gemini).
+
+## Recursos principais
+- **Autenticação:** login, registro, recuperação de senha, OAuth Google
+- **Clientes:** CRUD, derivação de estado (lead score, status), timeline
+- **Atendimentos:** ciclos de atendimento (um ativo por cliente), resumos IA
+- **Imóveis:** CRUD, geocoding, upload de imagens (Cloudinary)
+- **Visitas, vendas e perdas:** vinculados a cliente e atendimento
+- **IA:** resumos, chat contextual, jornada do cliente, recomendações
+
+## Autenticação na API
+Endpoints protegidos exigem o header: `Authorization: Bearer <token>`.
+Token obtido em `POST /auth/login` ou `POST /auth/public/register` ou fluxo Google.
+        """.strip(),
         version="0.1.0",
         lifespan=lifespan,
-        docs_url="/docs" if settings.environment != "production" else None,
-        redoc_url="/redoc" if settings.environment != "production" else None,
+        docs_url="/docs",
+        redoc_url="/redoc",
     )
 
     # Configure CORS (origins from settings: localhost by default, set CORS_ORIGINS on Render)
