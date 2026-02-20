@@ -1,6 +1,7 @@
 """Health check endpoints."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -11,44 +12,73 @@ from app.users.models import User
 router = APIRouter(tags=["health"])
 
 
-@router.get("/health")
-def healthcheck() -> dict[str, str]:
-    """
-    Health check endpoint for load balancers and monitoring.
+class HealthResponse(BaseModel):
+    """Resposta básica de health check."""
 
-    Returns:
-        Status indicator confirming the API is operational.
-    """
-    return {"status": "ok"}
+    status: str = Field(..., description="Indica se a API está operacional (ok)")
 
 
-@router.get("/health/db")
-def healthcheck_db(db: Session = Depends(get_db)) -> dict[str, str]:
-    """
-    Database health check - verifies connection and session injection.
+class HealthDbResponse(BaseModel):
+    """Resposta do health check com verificação de banco."""
 
-    Returns:
-        Status indicator confirming the database is reachable.
-    """
+    status: str = Field(..., description="Status da API")
+    database: str = Field(..., description="Status da conexão com o banco (connected)")
+
+
+class HealthProtectedResponse(BaseModel):
+    """Resposta do health check protegido (requer autenticação)."""
+
+    status: str = Field(..., description="Status da API")
+    message: str = Field(..., description="Mensagem indicando que o endpoint é protegido")
+    user_id: str = Field(..., description="UUID do usuário autenticado")
+    user_email: str = Field(..., description="E-mail do usuário autenticado")
+
+
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Health check",
+    description="Verifica se a API está no ar. **Público** — não exige autenticação. Útil para load balancers, monitoramento e deploy.",
+    responses={200: {"description": "API operacional"}},
+)
+def healthcheck() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+@router.get(
+    "/health/db",
+    response_model=HealthDbResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Health check (banco de dados)",
+    description="Verifica se a API está no ar e se a conexão com o **PostgreSQL** está ativa (executa `SELECT 1`). Público.",
+    responses={
+        200: {"description": "API e banco operacionais"},
+        503: {"description": "Banco indisponível (erro ao conectar)"},
+    },
+)
+def healthcheck_db(db: Session = Depends(get_db)) -> HealthDbResponse:
     db.execute(text("SELECT 1"))
-    return {"status": "ok", "database": "connected"}
+    return HealthDbResponse(status="ok", database="connected")
 
 
-@router.get("/health/protected")
+@router.get(
+    "/health/protected",
+    response_model=HealthProtectedResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Health check protegido",
+    description="Health check que **exige autenticação** (header `Authorization: Bearer <token>`). Retorna dados do usuário autenticado. Útil para validar que o token está válido.",
+    responses={
+        200: {"description": "Token válido; API e usuário ok"},
+        401: {"description": "Token ausente ou inválido"},
+    },
+)
 def healthcheck_protected(
     current_user: User = Depends(get_current_active_user),
-) -> dict[str, str]:
-    """
-    Protected health check - requires authentication.
-
-    This endpoint demonstrates route protection using JWT authentication.
-
-    Returns:
-        Status indicator with user information.
-    """
-    return {
-        "status": "ok",
-        "message": "This is a protected endpoint",
-        "user_id": str(current_user.id),
-        "user_email": current_user.email,
-    }
+) -> HealthProtectedResponse:
+    return HealthProtectedResponse(
+        status="ok",
+        message="This is a protected endpoint",
+        user_id=str(current_user.id),
+        user_email=current_user.email or "",
+    )
