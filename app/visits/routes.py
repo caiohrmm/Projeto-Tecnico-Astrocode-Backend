@@ -50,23 +50,34 @@ def _validate_broker_is_corretor(broker_id: uuid.UUID, db: Session) -> None:
         )
 
 
-@router.post("/", response_model=VisitResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=VisitResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Criar visita",
+    description="""
+Cria uma nova visita ao imóvel.
+
+**Regras:**
+- **Corretor:** `broker_id` é obrigatório e deve ser usuário com role **corretor** (400/404 se não for).
+- **Vínculo com atendimento:** se `attendance_id` for informado, o atendimento deve existir, ter status **ACTIVE** e **não** possuir visita pendente (agendada ou em andamento). Caso já exista visita pendente para esse atendimento, retorna 400.
+- **Sincronização:** ao criar visita vinculada a um atendimento, o campo `scheduled_visit_at` do atendimento é atualizado com a data da visita.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        201: {"description": "Visita criada"},
+        400: {"description": "broker_id não é corretor, atendimento não ACTIVE ou já possui visita pendente"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Atendimento não encontrado"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def create_visit(
     visit_data: VisitCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> VisitResponse:
-    """
-    Create a new visit.
-
-    Args:
-        visit_data: Visit creation data
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Created visit response
-    """
     # Validate broker_id must be a corretor
     _validate_broker_is_corretor(visit_data.broker_id, db)
 
@@ -106,38 +117,35 @@ def create_visit(
     return VisitResponse.model_validate(visit)
 
 
-@router.get("/", response_model=List[VisitResponse])
+@router.get(
+    "/",
+    response_model=List[VisitResponse],
+    summary="Listar visitas",
+    description="""
+Lista visitas com paginação e filtros opcionais.
+
+**Filtros:** client_id, broker_id, property_id, attendance_id, status (SCHEDULED, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, NO_SHOW), scheduled_from, scheduled_to.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de visitas"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def list_visits(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
-    client_id: uuid.UUID | None = Query(None, description="Filter by client ID"),
-    broker_id: uuid.UUID | None = Query(None, description="Filter by broker ID"),
-    property_id: uuid.UUID | None = Query(None, description="Filter by property ID"),
-    attendance_id: uuid.UUID | None = Query(None, description="Filter by attendance ID"),
-    status: VisitStatus | None = Query(None, description="Filter by status"),
-    scheduled_from: datetime | None = Query(None, description="Filter by scheduled date (from)"),
-    scheduled_to: datetime | None = Query(None, description="Filter by scheduled date (to)"),
+    skip: int = Query(0, ge=0, description="Registros a pular (paginação)"),
+    limit: int = Query(100, ge=1, le=1000, description="Máximo de registros a retornar"),
+    client_id: uuid.UUID | None = Query(None, description="Filtrar por cliente"),
+    broker_id: uuid.UUID | None = Query(None, description="Filtrar por corretor"),
+    property_id: uuid.UUID | None = Query(None, description="Filtrar por imóvel"),
+    attendance_id: uuid.UUID | None = Query(None, description="Filtrar por atendimento"),
+    status: VisitStatus | None = Query(None, description="Filtrar por status"),
+    scheduled_from: datetime | None = Query(None, description="Data agendada a partir de"),
+    scheduled_to: datetime | None = Query(None, description="Data agendada até"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[VisitResponse]:
-    """
-    List all visits with optional filtering and pagination.
-
-    Args:
-        skip: Number of records to skip
-        limit: Maximum number of records to return
-        client_id: Optional filter by client ID
-        broker_id: Optional filter by broker ID
-        property_id: Optional filter by property ID
-        status: Optional filter by status
-        scheduled_from: Optional filter by scheduled date (from)
-        scheduled_to: Optional filter by scheduled date (to)
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        List of visit responses
-    """
     visit_repo = VisitRepository(db)
     visits = visit_repo.get_all(
         skip=skip,
@@ -153,26 +161,22 @@ def list_visits(
     return [VisitResponse.model_validate(visit) for visit in visits]
 
 
-@router.get("/{visit_id}", response_model=VisitResponse)
+@router.get(
+    "/{visit_id}",
+    response_model=VisitResponse,
+    summary="Buscar visita por ID",
+    description="Retorna uma visita pelo UUID. Inclui cliente, corretor, imóvel, atendimento (se vinculado), data agendada, status e notas.",
+    responses={
+        200: {"description": "Visita encontrada"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Visita não encontrada"},
+    },
+)
 def get_visit(
     visit_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> VisitResponse:
-    """
-    Get a visit by ID.
-
-    Args:
-        visit_id: Visit UUID
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Visit response
-
-    Raises:
-        HTTPException: If visit is not found
-    """
     visit_repo = VisitRepository(db)
     visit = visit_repo.get_by_id(visit_id)
 
@@ -185,20 +189,33 @@ def get_visit(
     return VisitResponse.model_validate(visit)
 
 
-@router.put("/{visit_id}", response_model=VisitResponse)
+@router.put(
+    "/{visit_id}",
+    response_model=VisitResponse,
+    summary="Atualizar visita",
+    description="""
+Atualização parcial: apenas os campos enviados são considerados.
+
+**Visita vinculada a atendimento (attendance_id preenchido):** somente **scheduled_at** e **status** podem ser alterados (reagendamento). Demais campos são ignorados. O campo `scheduled_visit_at` do atendimento é mantido em sincronia quando `scheduled_at` da visita é atualizado.
+
+**Visita não vinculada:** todos os campos podem ser atualizados. Ao alterar `broker_id`, o usuário deve ser corretor. Ao vincular a um atendimento (`attendance_id`), o atendimento deve existir, estar ACTIVE e não possuir visita pendente.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Visita atualizada"},
+        400: {"description": "broker_id não é corretor, atendimento não ACTIVE ou já possui visita pendente"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Visita ou atendimento não encontrado"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def update_visit(
     visit_id: uuid.UUID,
     visit_data: VisitUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> VisitResponse:
-    """
-    Update a visit.
-
-    When the visit is linked to an attendance (attendance_id), only scheduled_at and status
-    can be updated (reagendamento). Other fields are ignored. The attendance.scheduled_visit_at
-    is kept in sync when scheduled_at is updated.
-    """
     visit_repo = VisitRepository(db)
     visit = visit_repo.get_by_id(visit_id)
 
@@ -251,23 +268,22 @@ def update_visit(
     return VisitResponse.model_validate(updated_visit)
 
 
-@router.delete("/{visit_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{visit_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir visita",
+    description="Remove a visita do sistema. Operação irreversível. Requer autenticação.",
+    responses={
+        204: {"description": "Visita excluída"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Visita não encontrada"},
+    },
+)
 def delete_visit(
     visit_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> None:
-    """
-    Delete a visit.
-
-    Args:
-        visit_id: Visit UUID
-        db: Database session
-        current_user: Current authenticated user
-
-    Raises:
-        HTTPException: If visit is not found
-    """
     visit_repo = VisitRepository(db)
     visit = visit_repo.get_by_id(visit_id)
 

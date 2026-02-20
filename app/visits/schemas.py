@@ -13,31 +13,31 @@ class VisitBase(BaseModel):
 
     attendance_id: uuid.UUID | None = Field(
         None,
-        description="Attendance ID (can be linked to attendance system)",
+        description="ID do atendimento (opcional; se informado, atendimento deve estar ACTIVE e sem visita pendente)",
     )
     property_id: uuid.UUID | None = Field(
         None,
-        description="Property ID (nullable - visit can be without property)",
+        description="ID do imóvel (opcional)",
     )
     client_id: uuid.UUID = Field(
         ...,
-        description="Client ID (required)",
+        description="ID do cliente",
     )
     broker_id: uuid.UUID = Field(
         ...,
-        description="Broker/Agent ID (required)",
+        description="ID do corretor (usuário com role corretor)",
     )
     scheduled_at: datetime = Field(
         ...,
-        description="Scheduled date and time for the visit",
+        description="Data e hora agendadas da visita",
     )
     status: VisitStatus = Field(
         VisitStatus.SCHEDULED,
-        description="Visit status (defaults to SCHEDULED)",
+        description="Status da visita (SCHEDULED, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, NO_SHOW)",
     )
     notes: str | None = Field(
         None,
-        description="Optional notes about the visit",
+        description="Observações sobre a visita",
     )
 
 
@@ -56,16 +56,16 @@ class VisitUpdate(BaseModel):
     """
     Schema for updating visit information.
 
-    All fields are optional to allow partial updates.
+    All fields are optional. Se a visita estiver vinculada a um atendimento, apenas scheduled_at e status são aplicados.
     """
 
-    attendance_id: uuid.UUID | None = None
-    property_id: uuid.UUID | None = None
-    client_id: uuid.UUID | None = None
-    broker_id: uuid.UUID | None = None
-    scheduled_at: datetime | None = None
-    status: VisitStatus | None = None
-    notes: str | None = None
+    attendance_id: uuid.UUID | None = Field(None, description="ID do atendimento (só aplicado se visita não vinculada)")
+    property_id: uuid.UUID | None = Field(None, description="ID do imóvel")
+    client_id: uuid.UUID | None = Field(None, description="ID do cliente")
+    broker_id: uuid.UUID | None = Field(None, description="ID do corretor (deve ser corretor)")
+    scheduled_at: datetime | None = Field(None, description="Nova data/hora agendada (reagendamento)")
+    status: VisitStatus | None = Field(None, description="Novo status")
+    notes: str | None = Field(None, description="Observações")
 
 
 class VisitResponse(VisitBase):
@@ -75,9 +75,9 @@ class VisitResponse(VisitBase):
     Includes all base fields plus id and timestamps.
     """
 
-    id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
+    id: uuid.UUID = Field(..., description="UUID da visita")
+    created_at: datetime = Field(..., description="Data de criação")
+    updated_at: datetime = Field(..., description="Data da última atualização")
 
     class Config:
         """Pydantic config."""
