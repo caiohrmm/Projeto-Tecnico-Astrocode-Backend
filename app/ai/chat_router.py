@@ -63,30 +63,28 @@ def shutdown_executor():
     "/",
     response_model=ChatResponse,
     status_code=status.HTTP_200_OK,
+    summary="Chat com assistente IA",
+    description="""
+Envia uma mensagem ao assistente IA (Gemini) com contexto opcional do CRM.
+
+**Contexto:** pode informar client_id, property_id e/ou attendance_id no body para carregar dados do banco; a IA responde com base nesses dados. Se **include_dashboard** for true (ou a mensagem pedir dashboard/métricas/resumo executivo), as métricas da dashboard são incluídas no contexto.
+
+**Comportamento:** a IA não inventa dados; quando a informação não existir, informa explicitamente. Timeout da chamada ao Gemini: ~35s (504 se exceder).
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Resposta da IA (answer; error se falha)"},
+        400: {"description": "IDs de contexto inválidos"},
+        401: {"description": "Não autenticado"},
+        504: {"description": "Timeout do serviço de IA"},
+    },
 )
 async def chat(
     request: ChatRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> ChatResponse:
-    """
-    Chat with AI agent about CRM system data.
-    
-    The AI can answer questions about clients, properties, and attendances
-    based on data loaded from the database. It will never hallucinate data
-    and will explicitly state when information is not available.
-    
-    Args:
-        request: Chat request with message and optional context IDs
-        db: Database session
-        current_user: Current authenticated user
-    
-    Returns:
-        AI response with answer and optional error
-    
-    Raises:
-        HTTPException: If context IDs are invalid or data cannot be loaded
-    """
     try:
         chat_service = ChatService(db)
         

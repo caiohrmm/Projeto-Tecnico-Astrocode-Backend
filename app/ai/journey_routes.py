@@ -18,100 +18,108 @@ router = APIRouter(prefix="/ai/journey", tags=["ai-journey"])
 
 # Pydantic schemas
 class NextActionResponse(BaseModel):
-    """Schema for next action suggestion."""
-    priority: str
-    action: str
-    title: str
-    description: str
-    suggested_channel: str | None = None
-    properties: list[str] | None = None
+    """Sugestão de próxima ação (IA)."""
+
+    priority: str = Field(..., description="Prioridade (ex.: high, medium)")
+    action: str = Field(..., description="Tipo de ação")
+    title: str = Field(..., description="Título")
+    description: str = Field(..., description="Descrição")
+    suggested_channel: str | None = Field(None, description="Canal sugerido (ex.: WhatsApp)")
+    properties: list[str] | None = Field(None, description="IDs de imóveis relacionados")
 
 
 class JourneyInsightsResponse(BaseModel):
-    """Schema for journey insights."""
-    engagement_score: int
-    relationship_health: str
-    sentiment_trend: str
-    lead_score_trend: str
-    avg_ai_lead_score: float | None
-    days_since_contact: int | None
-    total_attendances: int
-    completed_attendances: int
-    total_visits: int
-    completed_visits: int
-    no_show_visits: int
-    most_common_intent: str | None
-    journey_stage: str
+    """Métricas e tendências calculadas da jornada do cliente."""
+
+    engagement_score: int = Field(..., description="Score de engajamento")
+    relationship_health: str = Field(..., description="Saúde do relacionamento")
+    sentiment_trend: str = Field(..., description="Tendência de sentimento")
+    lead_score_trend: str = Field(..., description="Tendência do lead score")
+    avg_ai_lead_score: float | None = Field(None, description="Média do lead score (IA)")
+    days_since_contact: int | None = Field(None, description="Dias desde último contato")
+    total_attendances: int = Field(..., description="Total de atendimentos")
+    completed_attendances: int = Field(..., description="Atendimentos concluídos")
+    total_visits: int = Field(..., description="Total de visitas")
+    completed_visits: int = Field(..., description="Visitas realizadas")
+    no_show_visits: int = Field(..., description="Visitas no-show")
+    most_common_intent: str | None = Field(None, description="Intenção mais comum")
+    journey_stage: str = Field(..., description="Estágio da jornada")
 
 
 class JourneyAnalysisResponse(BaseModel):
-    """Schema for AI journey analysis response."""
-    analysis: str
-    context_summary: dict[str, Any] | None = None
-    next_actions: list[NextActionResponse]
+    """Resposta da análise de jornada pela IA (Gemini)."""
+
+    analysis: str = Field(..., description="Texto da análise (resumo, probabilidade de conversão, estratégia)")
+    context_summary: dict[str, Any] | None = Field(None, description="Resumo do contexto")
+    next_actions: list[NextActionResponse] = Field(..., description="Próximas ações recomendadas")
 
 
 class ClientContextResponse(BaseModel):
-    """Schema for client context response."""
-    client: dict[str, Any]
-    attendances: list[dict[str, Any]]
-    ai_summaries: list[dict[str, Any]]
-    visits: list[dict[str, Any]]
-    properties_of_interest: list[dict[str, Any]]
-    timeline_summary: dict[str, Any]
-    insights: JourneyInsightsResponse
+    """Contexto completo do cliente (cliente, atendimentos, resumos IA, visitas, imóveis, insights)."""
+
+    client: dict[str, Any] = Field(..., description="Dados do cliente")
+    attendances: list[dict[str, Any]] = Field(..., description="Atendimentos")
+    ai_summaries: list[dict[str, Any]] = Field(..., description="Resumos IA")
+    visits: list[dict[str, Any]] = Field(..., description="Visitas")
+    properties_of_interest: list[dict[str, Any]] = Field(..., description="Imóveis de interesse")
+    timeline_summary: dict[str, Any] = Field(..., description="Resumo da timeline")
+    insights: JourneyInsightsResponse = Field(..., description="Insights calculados")
 
 
 class TimelineEventCreate(BaseModel):
-    """Schema for creating timeline event."""
-    event_type: TimelineEventType
-    title: str = Field(..., max_length=255)
-    description: str | None = None
-    event_data: dict[str, Any] | None = None
-    related_attendance_id: uuid.UUID | None = None
-    related_visit_id: uuid.UUID | None = None
-    related_property_id: uuid.UUID | None = None
-    importance: int = Field(default=3, ge=1, le=5)
+    """Payload para criar evento manual na timeline."""
+
+    event_type: TimelineEventType = Field(..., description="Tipo do evento (enum TimelineEventType)")
+    title: str = Field(..., max_length=255, description="Título do evento")
+    description: str | None = Field(None, description="Descrição")
+    event_data: dict[str, Any] | None = Field(None, description="Dados adicionais (JSON)")
+    related_attendance_id: uuid.UUID | None = Field(None, description="ID do atendimento relacionado")
+    related_visit_id: uuid.UUID | None = Field(None, description="ID da visita relacionada")
+    related_property_id: uuid.UUID | None = Field(None, description="ID do imóvel relacionado")
+    importance: int = Field(default=3, ge=1, le=5, description="Importância 1–5 (padrão 3)")
 
 
 class TimelineEventResponse(BaseModel):
-    """Schema for timeline event response."""
-    id: uuid.UUID
-    client_id: uuid.UUID
-    event_type: str
-    title: str
-    description: str | None
-    event_data: dict[str, Any] | None
-    related_attendance_id: uuid.UUID | None
-    related_visit_id: uuid.UUID | None
-    related_property_id: uuid.UUID | None
-    created_by_id: uuid.UUID | None
-    ai_generated: bool
-    importance: int
-    created_at: str
-    
+    """Evento da timeline do cliente."""
+
+    id: uuid.UUID = Field(..., description="UUID do evento")
+    client_id: uuid.UUID = Field(..., description="ID do cliente")
+    event_type: str = Field(..., description="Tipo do evento")
+    title: str = Field(..., description="Título")
+    description: str | None = Field(None, description="Descrição")
+    event_data: dict[str, Any] | None = Field(None, description="Dados do evento")
+    related_attendance_id: uuid.UUID | None = Field(None, description="Atendimento relacionado")
+    related_visit_id: uuid.UUID | None = Field(None, description="Visita relacionada")
+    related_property_id: uuid.UUID | None = Field(None, description="Imóvel relacionado")
+    created_by_id: uuid.UUID | None = Field(None, description="Usuário que criou")
+    ai_generated: bool = Field(..., description="Se foi gerado pela IA")
+    importance: int = Field(..., description="Importância 1–5")
+    created_at: str = Field(..., description="Data de criação (ISO)")
+
     class Config:
         from_attributes = True
 
 
-@router.get("/context/{client_id}", response_model=ClientContextResponse)
+@router.get(
+    "/context/{client_id}",
+    response_model=ClientContextResponse,
+    summary="Contexto completo do cliente",
+    description="""
+Retorna o contexto completo do cliente para análise: dados do cliente, atendimentos, resumos IA, visitas, imóveis de interesse e insights calculados (engajamento, saúde do relacionamento, estágio da jornada, etc.). Base para análise de jornada e próximas ações.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Contexto do cliente (ClientContextResponse)"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+    },
+)
 def get_client_context(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> ClientContextResponse:
-    """
-    Get complete client context for AI analysis.
-    
-    This endpoint returns all relevant information about a client,
-    including attendances, visits, AI summaries, and derived insights.
-    
-    Args:
-        client_id: Client UUID
-        
-    Returns:
-        Complete client context
-    """
     context = ClientJourneyService.get_client_context(db, client_id)
     
     if "error" in context:
@@ -123,28 +131,26 @@ def get_client_context(
     return context
 
 
-@router.get("/analysis/{client_id}", response_model=JourneyAnalysisResponse)
+@router.get(
+    "/analysis/{client_id}",
+    response_model=JourneyAnalysisResponse,
+    summary="Análise de jornada (IA)",
+    description="""
+Gera análise da jornada do cliente pela IA (Gemini): resumo da jornada, probabilidade de conversão, pontos de atenção, próximos passos recomendados e estratégia de abordagem. Retorna analysis (texto), context_summary e next_actions.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Análise de jornada (JourneyAnalysisResponse)"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+    },
+)
 def get_journey_analysis(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> JourneyAnalysisResponse:
-    """
-    Get AI-generated journey analysis for a client.
-    
-    Uses Gemini AI to analyze the complete client journey and provide:
-    - Journey summary
-    - Conversion probability
-    - Points of attention
-    - Recommended next steps
-    - Approach strategy
-    
-    Args:
-        client_id: Client UUID
-        
-    Returns:
-        AI journey analysis with next actions
-    """
     result = ClientJourneyService.generate_ai_journey_analysis(db, client_id)
     
     if "error" in result and result["error"] == "Client not found":
@@ -156,53 +162,50 @@ def get_journey_analysis(
     return result
 
 
-@router.get("/next-actions/{client_id}", response_model=list[NextActionResponse])
+@router.get(
+    "/next-actions/{client_id}",
+    response_model=list[NextActionResponse],
+    summary="Próximas ações sugeridas (IA)",
+    description="""
+Retorna lista priorizada de ações sugeridas pela IA com base no estágio da jornada, nível de engajamento, tempo desde último contato, histórico de visitas e insights. Cada item inclui priority, action, title, description, suggested_channel e properties (IDs de imóveis se aplicável).
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de próximas ações"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def get_next_actions(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> list[NextActionResponse]:
-    """
-    Get AI-suggested next actions for a client.
-    
-    Returns prioritized list of suggested actions based on:
-    - Current journey stage
-    - Engagement level
-    - Time since last contact
-    - Visit history
-    - AI insights
-    
-    Args:
-        client_id: Client UUID
-        
-    Returns:
-        List of suggested next actions
-    """
     actions = ClientJourneyService.generate_next_actions(db, client_id)
     return actions
 
 
-@router.get("/timeline/{client_id}", response_model=list[TimelineEventResponse])
+@router.get(
+    "/timeline/{client_id}",
+    response_model=list[TimelineEventResponse],
+    summary="Timeline do cliente",
+    description="""
+Retorna a lista cronológica de eventos da jornada do cliente (até limit, padrão 50, máx. 200). Filtro opcional por event_types (ex.: STATUS_CHANGED, VISIT_SCHEDULED). Cada evento inclui tipo, título, descrição, dados, IDs relacionados e importance.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de eventos da timeline"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def get_client_timeline(
     client_id: uuid.UUID,
-    limit: int = Query(default=50, ge=1, le=200),
-    event_types: list[TimelineEventType] | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200, description="Máximo de eventos (1–200)"),
+    event_types: list[TimelineEventType] | None = Query(default=None, description="Filtrar por tipos de evento"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> list[TimelineEventResponse]:
-    """
-    Get timeline events for a client.
-    
-    Returns chronological list of all events in the client's journey.
-    
-    Args:
-        client_id: Client UUID
-        limit: Maximum events to return (default 50)
-        event_types: Filter by specific event types
-        
-    Returns:
-        List of timeline events
-    """
     events = TimelineService.get_client_timeline(
         db, client_id, limit=limit, event_types=event_types
     )
@@ -227,25 +230,29 @@ def get_client_timeline(
     ]
 
 
-@router.post("/timeline/{client_id}", response_model=TimelineEventResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/timeline/{client_id}",
+    response_model=TimelineEventResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Criar evento na timeline",
+    description="""
+Cria um evento manual na timeline do cliente. Campos: event_type, title (obrigatório), description, event_data (JSON), related_attendance_id, related_visit_id, related_property_id, importance (1–5, padrão 3). O evento é vinculado ao usuário atual (created_by_id).
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        201: {"description": "Evento criado"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def create_timeline_event(
     client_id: uuid.UUID,
     event_data: TimelineEventCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> TimelineEventResponse:
-    """
-    Create a new timeline event for a client.
-    
-    This allows manual addition of events to the client timeline.
-    
-    Args:
-        client_id: Client UUID
-        event_data: Event creation data
-        
-    Returns:
-        Created timeline event
-    """
     event = TimelineService.add_event(
         db=db,
         client_id=client_id,
@@ -278,27 +285,26 @@ def create_timeline_event(
     )
 
 
-@router.get("/insights/{client_id}", response_model=JourneyInsightsResponse)
+@router.get(
+    "/insights/{client_id}",
+    response_model=JourneyInsightsResponse,
+    summary="Insights da jornada",
+    description="""
+Retorna métricas e tendências calculadas a partir dos dados do cliente: engagement_score, relationship_health, sentiment_trend, lead_score_trend, dias desde último contato, totais de atendimentos/visitas (concluídos, no-show), intent mais comum e journey_stage.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Insights (JourneyInsightsResponse)"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+    },
+)
 def get_journey_insights(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> JourneyInsightsResponse:
-    """
-    Get computed insights for a client's journey.
-    
-    Returns metrics and trends calculated from client data:
-    - Engagement score
-    - Relationship health
-    - Sentiment/lead score trends
-    - Journey stage
-    
-    Args:
-        client_id: Client UUID
-        
-    Returns:
-        Journey insights
-    """
     context = ClientJourneyService.get_client_context(db, client_id)
     
     if "error" in context:

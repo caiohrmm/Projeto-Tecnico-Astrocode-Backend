@@ -50,38 +50,33 @@ class AISummaryCreate(AISummaryBase):
 
 class AISummaryUpdate(BaseModel):
     """
-    Schema for updating AI summary information.
-
-    All fields are optional to allow partial updates.
-    Useful for reprocessing or updating status.
+    Schema for updating AI summary. All fields optional (reprocessamento ou correção manual).
     """
 
-    summary_text: str | None = Field(None, min_length=1)
-    key_points: dict | None = None
-    detected_intent: DetectedIntent | None = None
-    interest_type_detected: InterestType | None = None
-    budget_min_detected: float | None = Field(None, ge=0)
-    budget_max_detected: float | None = Field(None, ge=0)
-    urgency_level_detected: UrgencyLevel | None = None
-    lead_score_suggested: int | None = Field(None, ge=0, le=100)
-    sentiment: Sentiment | None = None
-    model_used: str | None = Field(None, max_length=100)
-    prompt_version: str | None = Field(None, max_length=50)
-    confidence_score: float | None = Field(None, ge=0.0, le=1.0)
-    recommended_properties: list[uuid.UUID] | None = None
-    status: AISummaryStatus | None = None
-    error_message: str | None = None
+    summary_text: str | None = Field(None, min_length=1, description="Texto principal do resumo")
+    key_points: dict | None = Field(None, description="Pontos-chave (JSON)")
+    detected_intent: DetectedIntent | None = Field(None, description="Intenção detectada")
+    interest_type_detected: InterestType | None = Field(None, description="Tipo de interesse detectado")
+    budget_min_detected: float | None = Field(None, ge=0, description="Orçamento mínimo detectado")
+    budget_max_detected: float | None = Field(None, ge=0, description="Orçamento máximo detectado")
+    urgency_level_detected: UrgencyLevel | None = Field(None, description="Nível de urgência detectado")
+    lead_score_suggested: int | None = Field(None, ge=0, le=100, description="Lead score sugerido (0–100)")
+    sentiment: Sentiment | None = Field(None, description="Sentimento detectado")
+    model_used: str | None = Field(None, max_length=100, description="Modelo de IA utilizado")
+    prompt_version: str | None = Field(None, max_length=50, description="Versão do prompt")
+    confidence_score: float | None = Field(None, ge=0.0, le=1.0, description="Confiança (0–1)")
+    recommended_properties: list[uuid.UUID] | None = Field(None, description="IDs de imóveis recomendados")
+    status: AISummaryStatus | None = Field(None, description="PENDING, PROCESSING, COMPLETED, FAILED, REPROCESSING")
+    error_message: str | None = Field(None, description="Mensagem de erro se falhou")
 
 
 class AISummaryResponse(AISummaryBase):
     """
-    Schema for AI summary response.
-
-    Includes all base fields plus id and created_at timestamp.
+    Schema for AI summary response. Inclui todos os campos base, id e created_at.
     """
 
-    id: uuid.UUID
-    created_at: datetime
+    id: uuid.UUID = Field(..., description="UUID do resumo")
+    created_at: datetime = Field(..., description="Data de criação")
 
     class Config:
         """Pydantic config."""
@@ -91,25 +86,25 @@ class AISummaryResponse(AISummaryBase):
 
 # Chat schemas
 class ChatContext(BaseModel):
-    """Context data for chat requests."""
+    """IDs opcionais para carregar dados do CRM no contexto do chat."""
 
-    client_id: uuid.UUID | None = Field(None, description="Optional client ID for context")
-    property_id: uuid.UUID | None = Field(None, description="Optional property ID for context")
-    attendance_id: uuid.UUID | None = Field(None, description="Optional attendance ID for context")
+    client_id: uuid.UUID | None = Field(None, description="ID do cliente para contexto")
+    property_id: uuid.UUID | None = Field(None, description="ID do imóvel para contexto")
+    attendance_id: uuid.UUID | None = Field(None, description="ID do atendimento para contexto")
 
 
 class ChatRequest(BaseModel):
-    """Request schema for AI chat endpoint."""
+    """Request do chat com a IA."""
 
-    message: str = Field(..., min_length=1, max_length=2000, description="User's question or message")
-    context: ChatContext | None = Field(None, description="Optional context IDs to load data from database")
-    include_dashboard: bool = Field(False, description="Include dashboard metrics in context (for gestor on dashboard page)")
+    message: str = Field(..., min_length=1, max_length=2000, description="Pergunta ou mensagem do usuário")
+    context: ChatContext | None = Field(None, description="IDs opcionais (cliente, imóvel, atendimento) para carregar dados")
+    include_dashboard: bool = Field(False, description="Incluir métricas da dashboard no contexto (ex.: gestor na página dashboard)")
 
 
 class ChatResponse(BaseModel):
-    """Response schema for AI chat endpoint."""
+    """Resposta do chat com a IA."""
 
-    answer: str = Field(..., description="AI's response to the user's question")
-    error: str | None = Field(None, description="Error message if request failed")
+    answer: str = Field(..., description="Resposta da IA")
+    error: str | None = Field(None, description="Mensagem de erro se a requisição falhou")
 
 
