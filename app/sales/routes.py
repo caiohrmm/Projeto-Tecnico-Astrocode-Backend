@@ -50,40 +50,67 @@ def _enrich_sale_response(sale: Sale) -> dict:
     return data
 
 
-@router.post("/", response_model=SaleResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=SaleResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar venda/aluguel",
+    description="""
+Registra uma nova venda ou aluguel.
+
+**Efeitos automáticos:**
+- **Cliente:** status atualizado para **WON**.
+- **Imóvel:** status atualizado para **SOLD** (venda) ou **RENTED** (aluguel), se property_id informado.
+- **Comissão:** valor calculado a partir de commission_percentage e sale_value.
+- **Atendimento:** o atendimento ACTIVE do cliente é fechado (status COMPLETED).
+- **Timeline:** evento adicionado na timeline do cliente.
+
+Status inicial da venda: PENDING. Requer autenticação.
+    """.strip(),
+    responses={
+        201: {"description": "Venda/aluguel registrado"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente ou imóvel não encontrado"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def create_sale(
     sale_data: SaleCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> SaleResponse:
-    """
-    Create a new sale record.
-
-    This endpoint:
-    - Creates the sale record
-    - Updates client status to WON
-    - Updates property status to SOLD/RENTED
-    - Calculates commission value
-    - Adds timeline event
-    """
     sale_repo = SaleRepository(db)
     sale = sale_repo.create(sale_data)
     return SaleResponse(**_enrich_sale_response(sale))
 
 
-@router.get("/", response_model=List[SaleResponse])
+@router.get(
+    "/",
+    response_model=List[SaleResponse],
+    summary="Listar vendas/aluguéis",
+    description="""
+Lista vendas e aluguéis com paginação e filtros opcionais.
+
+**Filtros:** client_id, property_id, broker_id, sale_type (SALE/RENT), sale_status (PENDING, SIGNED, COMPLETED, CANCELLED). Resposta inclui nomes do cliente, imóvel e corretor.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de vendas/aluguéis"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def list_sales(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records"),
-    client_id: uuid.UUID | None = Query(None, description="Filter by client ID"),
-    property_id: uuid.UUID | None = Query(None, description="Filter by property ID"),
-    broker_id: uuid.UUID | None = Query(None, description="Filter by broker ID"),
-    sale_type: SaleType | None = Query(None, description="Filter by sale type"),
-    sale_status: SaleStatus | None = Query(None, description="Filter by status"),
+    skip: int = Query(0, ge=0, description="Registros a pular (paginação)"),
+    limit: int = Query(100, ge=1, le=1000, description="Máximo de registros"),
+    client_id: uuid.UUID | None = Query(None, description="Filtrar por cliente"),
+    property_id: uuid.UUID | None = Query(None, description="Filtrar por imóvel"),
+    broker_id: uuid.UUID | None = Query(None, description="Filtrar por corretor"),
+    sale_type: SaleType | None = Query(None, description="Filtrar por tipo (SALE ou RENT)"),
+    sale_status: SaleStatus | None = Query(None, description="Filtrar por status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[SaleResponse]:
-    """List all sales with optional filters."""
     sale_repo = SaleRepository(db)
     sales = sale_repo.get_all(
         skip=skip,
@@ -97,15 +124,27 @@ def list_sales(
     return [SaleResponse(**_enrich_sale_response(sale)) for sale in sales]
 
 
-@router.get("/stats", response_model=SaleStats)
+@router.get(
+    "/stats",
+    response_model=SaleStats,
+    summary="Estatísticas de vendas",
+    description="""
+Retorna estatísticas agregadas: total de vendas, valor total, comissão total, contagens por tipo (venda/aluguel) e por status (pendentes/concluídas), médias. Filtros opcionais: broker_id, start_date, end_date.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Estatísticas (SaleStats)"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def get_sales_stats(
-    broker_id: uuid.UUID | None = Query(None, description="Filter by broker ID"),
-    start_date: datetime | None = Query(None, description="Start date filter"),
-    end_date: datetime | None = Query(None, description="End date filter"),
+    broker_id: uuid.UUID | None = Query(None, description="Filtrar por corretor"),
+    start_date: datetime | None = Query(None, description="Data inicial"),
+    end_date: datetime | None = Query(None, description="Data final"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> SaleStats:
-    """Get sales statistics."""
     sale_repo = SaleRepository(db)
     return sale_repo.get_stats(
         broker_id=broker_id,
@@ -114,13 +153,22 @@ def get_sales_stats(
     )
 
 
-@router.get("/{sale_id}", response_model=SaleWithDetails)
+@router.get(
+    "/{sale_id}",
+    response_model=SaleWithDetails,
+    summary="Buscar venda por ID",
+    description="Retorna uma venda/aluguel pelo UUID com detalhes completos: dados da venda, nome do cliente/imóvel/corretor, telefone e e-mail do cliente, endereço e cidade do imóvel.",
+    responses={
+        200: {"description": "Venda com detalhes (SaleWithDetails)"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Venda não encontrada"},
+    },
+)
 def get_sale(
     sale_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> SaleWithDetails:
-    """Get a sale by ID with full details."""
     sale_repo = SaleRepository(db)
     sale = sale_repo.get_by_id(sale_id)
     
@@ -144,21 +192,32 @@ def get_sale(
     return SaleWithDetails(**data)
 
 
-@router.put("/{sale_id}", response_model=SaleResponse)
+@router.put(
+    "/{sale_id}",
+    response_model=SaleResponse,
+    summary="Atualizar venda",
+    description="""
+Atualização parcial. Transições de status com efeitos automáticos:
+
+- **SIGNED:** define contract_date e adiciona evento na timeline.
+- **COMPLETED:** define completion_date e dispara análise de sucesso pela IA (ai_analysis, ai_success_factors).
+- **CANCELLED:** reverte status do cliente para LOST e do imóvel para PUBLISHED.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Venda atualizada"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Venda não encontrada"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def update_sale(
     sale_id: uuid.UUID,
     sale_data: SaleUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> SaleResponse:
-    """
-    Update a sale.
-
-    Handles status transitions:
-    - SIGNED: Sets contract_date, adds timeline event
-    - COMPLETED: Sets completion_date, triggers AI analysis
-    - CANCELLED: Reverts client/property status
-    """
     sale_repo = SaleRepository(db)
     sale = sale_repo.get_by_id(sale_id)
     
@@ -172,19 +231,26 @@ def update_sale(
     return SaleResponse(**_enrich_sale_response(updated_sale))
 
 
-@router.delete("/{sale_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{sale_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir venda",
+    description="""
+Remove a venda do sistema. Se a venda não estiver CANCELLED, o status do cliente e do imóvel é revertido (cliente deixa de ser WON; imóvel volta a PUBLISHED). Operação irreversível.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        204: {"description": "Venda excluída"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Venda não encontrada"},
+    },
+)
 def delete_sale(
     sale_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> None:
-    """
-    Delete a sale.
-
-    This will:
-    - Revert client status if sale was not cancelled
-    - Revert property status if sale was not cancelled
-    """
     sale_repo = SaleRepository(db)
     sale = sale_repo.get_by_id(sale_id)
     
@@ -197,20 +263,29 @@ def delete_sale(
     sale_repo.delete(sale)
 
 
-@router.post("/{sale_id}/complete", response_model=SaleResponse)
+@router.post(
+    "/{sale_id}/complete",
+    response_model=SaleResponse,
+    summary="Concluir venda",
+    description="""
+Marca a venda como COMPLETED. Atalho que define status COMPLETED, completion_date e dispara a análise de sucesso pela IA (ai_analysis, ai_success_factors).
+
+**Restrição:** não é possível concluir venda já CANCELLED (400).
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Venda concluída"},
+        400: {"description": "Venda já cancelada"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Venda não encontrada"},
+    },
+)
 def complete_sale(
     sale_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> SaleResponse:
-    """
-    Mark a sale as completed.
-
-    This is a convenience endpoint that:
-    - Sets status to COMPLETED
-    - Sets completion_date
-    - Triggers AI analysis
-    """
     sale_repo = SaleRepository(db)
     sale = sale_repo.get_by_id(sale_id)
     
@@ -230,21 +305,30 @@ def complete_sale(
     return SaleResponse(**_enrich_sale_response(updated_sale))
 
 
-@router.post("/{sale_id}/cancel", response_model=SaleResponse)
+@router.post(
+    "/{sale_id}/cancel",
+    response_model=SaleResponse,
+    summary="Cancelar venda",
+    description="""
+Marca a venda como CANCELLED. Efeitos: status CANCELLED; cliente volta para **LOST**; imóvel volta para **PUBLISHED**.
+
+**Restrição:** não é possível cancelar venda já COMPLETED (400). Opcionalmente informe **reason** (query) para gravar nas notas.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Venda cancelada"},
+        400: {"description": "Venda já concluída"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Venda não encontrada"},
+    },
+)
 def cancel_sale(
     sale_id: uuid.UUID,
-    reason: str | None = Query(None, description="Cancellation reason"),
+    reason: str | None = Query(None, description="Motivo do cancelamento (opcional, gravado nas notas)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> SaleResponse:
-    """
-    Cancel a sale.
-
-    This will:
-    - Set status to CANCELLED
-    - Revert client status to LOST
-    - Revert property status to PUBLISHED
-    """
     sale_repo = SaleRepository(db)
     sale = sale_repo.get_by_id(sale_id)
     

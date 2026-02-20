@@ -59,49 +59,48 @@ class SaleCreate(SaleBase):
 
 
 class SaleUpdate(BaseModel):
-    """Schema for updating a sale."""
+    """Schema for updating a sale. All fields optional; status transitions trigger side effects (SIGNED/COMPLETED/CANCELLED)."""
 
-    property_id: uuid.UUID | None = None
-    broker_id: uuid.UUID | None = None
-    
-    status: SaleStatus | None = None
-    sale_value: Decimal | None = Field(None, gt=0)
-    
-    commission_percentage: Decimal | None = Field(None, ge=0, le=100)
-    commission_value: Decimal | None = None
-    down_payment: Decimal | None = None
-    payment_method: PaymentMethod | None = None
-    payment_methods: list[PaymentMethodItem] | None = None
-    
-    rent_duration_months: int | None = None
-    rent_start_date: datetime | None = None
-    
-    proposal_date: datetime | None = None
-    contract_date: datetime | None = None
-    completion_date: datetime | None = None
-    
-    notes: str | None = None
-    ai_analysis: str | None = None
-    ai_success_factors: str | None = None
+    property_id: uuid.UUID | None = Field(None, description="ID do imóvel")
+    broker_id: uuid.UUID | None = Field(None, description="ID do corretor")
+
+    status: SaleStatus | None = Field(None, description="PENDING, SIGNED, COMPLETED ou CANCELLED (efeitos automáticos)")
+    sale_value: Decimal | None = Field(None, gt=0, description="Valor total da venda/aluguel")
+
+    commission_percentage: Decimal | None = Field(None, ge=0, le=100, description="Percentual de comissão")
+    commission_value: Decimal | None = Field(None, description="Valor da comissão")
+    down_payment: Decimal | None = Field(None, description="Entrada (legado)")
+    payment_method: PaymentMethod | None = Field(None, description="Forma de pagamento única (legado)")
+    payment_methods: list[PaymentMethodItem] | None = Field(None, description="Lista de formas de pagamento")
+
+    rent_duration_months: int | None = Field(None, description="Duração do aluguel em meses")
+    rent_start_date: datetime | None = Field(None, description="Data de início do aluguel")
+
+    proposal_date: datetime | None = Field(None, description="Data da proposta")
+    contract_date: datetime | None = Field(None, description="Data do contrato (definida ao marcar SIGNED)")
+    completion_date: datetime | None = Field(None, description="Data de conclusão (definida ao marcar COMPLETED)")
+    notes: str | None = Field(None, description="Observações")
+    ai_analysis: str | None = Field(None, description="Análise de sucesso pela IA (preenchida ao concluir)")
+    ai_success_factors: str | None = Field(None, description="Fatores de sucesso pela IA (preenchidos ao concluir)")
 
 
 class SaleResponse(SaleBase):
-    """Schema for sale response."""
+    """Schema for sale response (inclui nomes de cliente, imóvel e corretor)."""
 
-    id: uuid.UUID
-    status: SaleStatus
-    commission_value: Decimal | None = None
-    contract_date: datetime | None = None
-    completion_date: datetime | None = None
-    ai_analysis: str | None = None
-    ai_success_factors: str | None = None
-    created_at: datetime
-    updated_at: datetime
+    id: uuid.UUID = Field(..., description="UUID da venda")
+    status: SaleStatus = Field(..., description="PENDING, SIGNED, COMPLETED ou CANCELLED")
+    commission_value: Decimal | None = Field(None, description="Valor da comissão calculado")
+    contract_date: datetime | None = Field(None, description="Data do contrato")
+    completion_date: datetime | None = Field(None, description="Data de conclusão")
+    ai_analysis: str | None = Field(None, description="Análise de sucesso pela IA")
+    ai_success_factors: str | None = Field(None, description="Fatores de sucesso pela IA")
+    created_at: datetime = Field(..., description="Data de criação")
+    updated_at: datetime = Field(..., description="Data da última atualização")
 
     # Related entities names for display
-    client_name: str | None = None
-    property_title: str | None = None
-    broker_name: str | None = None
+    client_name: str | None = Field(None, description="Nome do cliente")
+    property_title: str | None = Field(None, description="Título do imóvel")
+    broker_name: str | None = Field(None, description="Nome do corretor")
 
     @field_validator("payment_methods", mode="before")
     @classmethod
@@ -129,33 +128,30 @@ class SaleResponse(SaleBase):
 
 
 class SaleWithDetails(SaleResponse):
-    """Schema for sale with full details."""
+    """Schema for sale with full details (telefone/e-mail do cliente, endereço/cidade do imóvel)."""
 
-    # Client details
-    client_phone: str | None = None
-    client_email: str | None = None
-    
-    # Property details
-    property_address: str | None = None
-    property_city: str | None = None
-    
+    client_phone: str | None = Field(None, description="Telefone do cliente")
+    client_email: str | None = Field(None, description="E-mail do cliente")
+    property_address: str | None = Field(None, description="Endereço do imóvel")
+    property_city: str | None = Field(None, description="Cidade do imóvel")
+
     class Config:
         from_attributes = True
 
 
 class SaleStats(BaseModel):
-    """Schema for sales statistics."""
+    """Estatísticas agregadas de vendas e aluguéis."""
 
-    total_sales: int = 0
-    total_value: Decimal = Decimal("0.00")
-    total_commission: Decimal = Decimal("0.00")
-    
-    sales_count: int = 0
-    rent_count: int = 0
-    
-    pending_count: int = 0
-    completed_count: int = 0
-    
-    avg_sale_value: Decimal = Decimal("0.00")
-    avg_commission: Decimal = Decimal("0.00")
+    total_sales: int = Field(0, description="Quantidade total de registros")
+    total_value: Decimal = Field(Decimal("0.00"), description="Valor total (vendas + aluguéis)")
+    total_commission: Decimal = Field(Decimal("0.00"), description="Comissão total")
+
+    sales_count: int = Field(0, description="Quantidade de vendas (SALE)")
+    rent_count: int = Field(0, description="Quantidade de aluguéis (RENT)")
+
+    pending_count: int = Field(0, description="Vendas pendentes (PENDING/SIGNED)")
+    completed_count: int = Field(0, description="Vendas concluídas (COMPLETED)")
+
+    avg_sale_value: Decimal = Field(Decimal("0.00"), description="Valor médio por venda/aluguel")
+    avg_commission: Decimal = Field(Decimal("0.00"), description="Comissão média")
 
