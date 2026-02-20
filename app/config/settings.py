@@ -51,16 +51,24 @@ class Settings(BaseSettings):
     cloudinary_api_key: str = ""
     cloudinary_api_secret: str = ""
     
-    # Frontend URL for OAuth redirects
+    # Frontend URL for OAuth redirects (e.g. where to send user after Google login)
     frontend_url: str = "http://localhost:5173"
 
-    # SMTP for password reset emails (optional - if not set, link is logged to console)
+    # CORS: comma-separated list of allowed origins (e.g. https://meu-app.vercel.app)
+    # If set, replaces default localhost origins in production.
+    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
+
+    # SMTP for password reset emails (optional; if not set, link is logged to console)
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from_email: str = "noreply@example.com"
     smtp_use_tls: bool = True
+
+    def get_cors_origins_list(self) -> list[str]:
+        """Return CORS allowed origins as a list (from comma-separated env)."""
+        return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
 
 
 @lru_cache

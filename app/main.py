@@ -53,15 +53,10 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.environment != "production" else None,
     )
 
-    # Configure CORS
+    # Configure CORS (origins from settings: localhost by default, set CORS_ORIGINS on Render)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",  # Vite default port
-            "http://localhost:3000",  # Alternative frontend port
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:3000",
-        ],
+        allow_origins=settings.get_cors_origins_list(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

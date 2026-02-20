@@ -9,6 +9,8 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Google Gemini AI](https://img.shields.io/badge/Google%20Gemini-AI-4285F4?logo=google&logoColor=white)](https://ai.google.dev)
 
+**API em produção (Render):** [https://projeto-tecnico-astrocode-backend.onrender.com](https://projeto-tecnico-astrocode-backend.onrender.com) · [Docs (Swagger)](https://projeto-tecnico-astrocode-backend.onrender.com/docs)
+
 </div>
 
 ---
@@ -117,8 +119,8 @@ alembic/                    # Migrações
 4. **Banco:** `alembic upgrade head`
 5. **Primeiro usuário (gestor):** `python scripts/create_manager.py --email ... --password ... --name "Admin"`
 6. **Rodar:** `uvicorn app.main:app --reload --port 8000`  
-   - API: http://localhost:8000  
-   - Docs: http://localhost:8000/docs  
+   - **Local:** API → http://localhost:8000 · Docs → http://localhost:8000/docs  
+   - **Produção (Render):** API → https://projeto-tecnico-astrocode-backend.onrender.com · Docs → https://projeto-tecnico-astrocode-backend.onrender.com/docs  
 
 ---
 
