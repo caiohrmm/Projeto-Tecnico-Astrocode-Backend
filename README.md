@@ -11,6 +11,8 @@
 
 **API em produção (Render):** [https://projeto-tecnico-astrocode-backend.onrender.com](https://projeto-tecnico-astrocode-backend.onrender.com) · [Docs (Swagger)](https://projeto-tecnico-astrocode-backend.onrender.com/docs)
 
+A **API está totalmente documentada** no Swagger: todos os endpoints possuem descrição, regras de negócio, códigos de resposta e schemas de request/response em português. Use o link **Docs** acima para explorar e testar.
+
 </div>
 
 ---
@@ -60,24 +62,9 @@ Sistema de **CRM para imobiliárias** com **IA (Google Gemini)** integrada. Toda
 | **Auth** | JWT, bcrypt, OAuth 2.0 (Google), RBAC |
 | **Integrações** | Cloudinary (imagens de imóveis) |
 
-### Diagrama
+### Arquitetura em camadas
 
-```
-┌─────────────────┐
-│   Frontend      │  Vue 3 + Vite + Vuetify
-└────────┬────────┘
-         │ HTTP/REST
-┌────────▼────────┐
-│   Backend       │  FastAPI
-└────────┬────────┘
-         │
-    ┌────┴────┬──────────┬──────────┐
-    │         │          │          │
-┌───▼───┐ ┌──▼───┐ ┌───▼───┐ ┌───▼───┐
-│PostgreSQL│ │Gemini AI│ │Cloudinary│ │ OAuth  │
-│(ex: Neon)│ │         │ │          │ │ Google │
-└────────┘ └─────────┘ └──────────┘ └────────┘
-```
+O **frontend** (Vue 3 + Vite + Vuetify) consome a API via **HTTP/REST**. O **backend** (FastAPI) centraliza a lógica e se conecta a quatro integrações: **PostgreSQL** (banco de dados, ex.: Neon), **Google Gemini** (IA para resumos, chat e jornada), **Cloudinary** (upload de imagens de imóveis) e **OAuth Google** (login social). Ou seja: o cliente acessa o frontend, que chama o backend; o backend persiste dados no PostgreSQL, usa a IA (Gemini) para análises e chat, armazena fotos no Cloudinary e delega a autenticação social ao Google.
 
 ---
 
@@ -361,7 +348,9 @@ Contexto do atendimento (resumo IA, imóvel vinculado, visitas, vendas/perdas) e
 
 ## 8. API (endpoints)
 
-Resumo dos principais endpoints por recurso. O fluxo completo (cliente → atendimento → visita → venda/perda) está descrito nos tópicos **5** e **6**.
+A API está **totalmente documentada** no Swagger (`/docs`): cada endpoint tem resumo, descrição (incluindo regras de negócio quando aplicável), códigos de resposta (200, 201, 400, 401, 404, etc.) e schemas de request/response com descrições em português. Abaixo, um resumo dos principais recursos; para a lista completa e para testar as rotas, use a documentação interativa em **[/docs](https://projeto-tecnico-astrocode-backend.onrender.com/docs)**.
+
+O fluxo completo (cliente → atendimento → visita → venda/perda) está descrito nos tópicos **5** e **6**.
 
 ### Autenticação
 
