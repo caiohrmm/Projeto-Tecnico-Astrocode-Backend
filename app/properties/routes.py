@@ -290,23 +290,34 @@ def _validate_agent_is_corretor(assigned_agent_id: uuid.UUID | None, db: Session
         )
 
 
-@router.post("/", response_model=PropertyResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=PropertyResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Criar imóvel",
+    description="""
+Cria um novo imóvel no portfólio.
+
+**Regras:**
+- **Código único:** `code` não pode repetir outro imóvel (400 se já existir).
+- **Agente:** se `assigned_agent_id` for informado, o usuário deve ter role **corretor** (400 se não for; 404 se usuário não existir).
+- **Status:** padrão DRAFT se não informado. O score de visibilidade é calculado automaticamente na criação.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        201: {"description": "Imóvel criado"},
+        400: {"description": "Código já existe ou agent_id não é corretor"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Agente não encontrado"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def create_property(
     property_data: PropertyCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PropertyResponse:
-    """
-    Create a new property.
-
-    Args:
-        property_data: Property creation data
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Created property response
-    """
     # Validate assigned_agent_id if provided
     _validate_agent_is_corretor(property_data.assigned_agent_id, db)
 
@@ -323,37 +334,36 @@ def create_property(
     return PropertyResponse.model_validate(property)
 
 
-@router.get("/", response_model=List[PropertyResponse])
+@router.get(
+    "/",
+    response_model=List[PropertyResponse],
+    summary="Listar imóveis",
+    description="""
+Lista imóveis com paginação e filtros opcionais.
+
+**Filtros:** property_type, business_type, status, city (correspondência parcial), state (2 letras).  
+**available_only:** quando true, ignora o parâmetro status e retorna apenas imóveis PUBLISHED (exclui SOLD, RENTED, etc.).  
+**Ordenação:** por visibility_score (maior primeiro), depois por created_at (mais recentes primeiro).
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de imóveis"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def list_properties(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
-    property_type: PropertyType | None = Query(None, description="Filter by property type"),
-    business_type: BusinessType | None = Query(None, description="Filter by business type"),
-    status: PropertyStatus | None = Query(None, description="Filter by status"),
-    available_only: bool = Query(False, description="If True, return only PUBLISHED (excludes SOLD, RENTED, etc.)"),
-    city: str | None = Query(None, description="Filter by city (partial match)"),
-    state: str | None = Query(None, description="Filter by state (2 letters)"),
+    skip: int = Query(0, ge=0, description="Registros a pular (paginação)"),
+    limit: int = Query(100, ge=1, le=1000, description="Máximo de registros a retornar"),
+    property_type: PropertyType | None = Query(None, description="Filtrar por tipo de imóvel"),
+    business_type: BusinessType | None = Query(None, description="Filtrar por tipo de negócio (SALE, RENT, BOTH)"),
+    status: PropertyStatus | None = Query(None, description="Filtrar por status"),
+    available_only: bool = Query(False, description="Se true, retorna apenas PUBLISHED"),
+    city: str | None = Query(None, description="Filtrar por cidade (parcial)"),
+    state: str | None = Query(None, description="Filtrar por estado (2 letras)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[PropertyResponse]:
-    """
-    List all properties with optional filtering and pagination.
-
-    Args:
-        skip: Number of records to skip
-        limit: Maximum number of records to return
-        property_type: Optional filter by property type
-        business_type: Optional filter by business type
-        status: Optional filter by status
-        available_only: If True, only return PUBLISHED properties
-        city: Optional filter by city
-        state: Optional filter by state
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        List of property responses
-    """
     effective_status = PropertyStatus.PUBLISHED if available_only else status
     property_repo = PropertyRepository(db)
     properties = property_repo.get_all(
@@ -368,26 +378,22 @@ def list_properties(
     return [PropertyResponse.model_validate(prop) for prop in properties]
 
 
-@router.get("/{property_id}", response_model=PropertyResponse)
+@router.get(
+    "/{property_id}",
+    response_model=PropertyResponse,
+    summary="Buscar imóvel por ID",
+    description="Retorna um imóvel pelo UUID. Inclui dados de endereço, características, valores, status, agente e URL da imagem principal.",
+    responses={
+        200: {"description": "Imóvel encontrado"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Imóvel não encontrado"},
+    },
+)
 def get_property(
     property_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PropertyResponse:
-    """
-    Get a property by ID.
-
-    Args:
-        property_id: Property UUID
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Property response
-
-    Raises:
-        HTTPException: If property is not found
-    """
     property_repo = PropertyRepository(db)
     property = property_repo.get_by_id(property_id)
 
@@ -400,28 +406,33 @@ def get_property(
     return PropertyResponse.model_validate(property)
 
 
-@router.put("/{property_id}", response_model=PropertyResponse)
+@router.put(
+    "/{property_id}",
+    response_model=PropertyResponse,
+    summary="Atualizar imóvel",
+    description="""
+Atualização parcial: apenas os campos enviados são alterados.
+
+**Regras:**
+- **Código:** ao alterar, não pode coincidir com o de outro imóvel (400).
+- **Agente:** se `assigned_agent_id` for informado, deve ser usuário com role corretor (400/404).
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Imóvel atualizado"},
+        400: {"description": "Código já existe ou agent_id não é corretor"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Imóvel ou agente não encontrado"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def update_property(
     property_id: uuid.UUID,
     property_data: PropertyUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PropertyResponse:
-    """
-    Update a property.
-
-    Args:
-        property_id: Property UUID
-        property_data: Property update data (only provided fields will be updated)
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        Updated property response
-
-    Raises:
-        HTTPException: If property is not found
-    """
     # Validate assigned_agent_id if provided
     _validate_agent_is_corretor(property_data.assigned_agent_id, db)
 
@@ -447,26 +458,29 @@ def update_property(
     return PropertyResponse.model_validate(updated_property)
 
 
-@router.delete("/{property_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{property_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir imóvel",
+    description="""
+Remove o imóvel do sistema. Operação irreversível.
+
+**Permissão:** apenas usuários com role **corretor** ou **gestor**. Atendentes não podem excluir.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        204: {"description": "Imóvel excluído"},
+        401: {"description": "Não autenticado"},
+        403: {"description": "Sem permissão (requer corretor ou gestor)"},
+        404: {"description": "Imóvel não encontrado"},
+    },
+)
 def delete_property(
     property_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_agent_or_manager),
 ) -> None:
-    """
-    Delete a property.
-
-    Only users with 'corretor' or 'gestor' roles can delete properties.
-    Attendees (atendente) cannot delete properties.
-
-    Args:
-        property_id: Property UUID
-        db: Database session
-        current_user: Current authenticated user (must be corretor or gestor)
-
-    Raises:
-        HTTPException: If property is not found or user doesn't have permission
-    """
     property_repo = PropertyRepository(db)
     property = property_repo.get_by_id(property_id)
 
@@ -483,33 +497,30 @@ def delete_property(
     "/{property_id}/main-image",
     response_model=PropertyResponse,
     status_code=status.HTTP_200_OK,
+    summary="Enviar imagem principal do imóvel",
+    description="""
+Envia a imagem principal do imóvel para o Cloudinary e atualiza `main_image_url` no imóvel.
+
+**Armazenamento:** pasta `properties/{property_id}/main_image` no Cloudinary.  
+**Formatos:** JPEG, PNG ou WebP (validação e tamanho máx. definidos no serviço Cloudinary).  
+**Permissão:** apenas **corretor** ou **gestor**.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Imóvel atualizado com nova URL da imagem"},
+        401: {"description": "Não autenticado"},
+        403: {"description": "Sem permissão (requer corretor ou gestor)"},
+        404: {"description": "Imóvel não encontrado"},
+        500: {"description": "Falha no upload da imagem"},
+    },
 )
 def upload_property_main_image(
     property_id: uuid.UUID,
-    file: UploadFile = File(..., description="Property main image file (JPEG, PNG, or WebP)"),
+    file: UploadFile = File(..., description="Arquivo da imagem (JPEG, PNG ou WebP)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_agent_or_manager),
 ) -> PropertyResponse:
-    """
-    Upload main image for a property.
-
-    The image is uploaded to Cloudinary and stored in the folder:
-    properties/{property_id}/main_image
-
-    Only users with 'corretor' or 'gestor' roles can upload images.
-
-    Args:
-        property_id: UUID of the property
-        file: Image file to upload (JPEG, PNG, or WebP, max 10MB)
-        db: Database session
-        current_user: Current authenticated user (must be corretor or gestor)
-
-    Returns:
-        Updated property response with new main_image_url
-
-    Raises:
-        HTTPException: If property not found, file invalid, or upload fails
-    """
     # Get property
     property_repo = PropertyRepository(db)
     property = property_repo.get_by_id(property_id)
@@ -553,27 +564,34 @@ def upload_property_main_image(
     return PropertyResponse.model_validate(updated_property)
 
 
-@router.get("/geocode/address", response_model=AddressData)
+@router.get(
+    "/geocode/address",
+    response_model=AddressData,
+    summary="Geocodificar endereço",
+    description="""
+Converte um endereço ou local em dados estruturados usando a API do Google (Geocoding).
+
+**Entrada aceita:**
+- Texto livre (ex.: "Rua Exemplo, 123, São Paulo, SP").
+- URL do Google Maps (completa ou encurtada; place_id ou coordenadas @lat,lng são extraídos).
+
+**Resposta:** endereço parseado (rua, número, bairro, cidade, estado, CEP, latitude, longitude).  
+**Configuração:** requer `GOOGLE_API_KEY` no ambiente; sem chave retorna 503.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Endereço geocodificado (AddressData)"},
+        400: {"description": "Endereço inválido ou sem place_id/coordenadas na URL"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Nenhum resultado para o endereço"},
+        503: {"description": "Chave do Google não configurada ou API indisponível"},
+    },
+)
 async def geocode_address(
-    address: str = Query(..., description="Address, place, or Google Maps URL to geocode"),
+    address: str = Query(..., description="Endereço, lugar ou URL do Google Maps para geocodificar"),
     current_user: User = Depends(get_current_active_user),
 ) -> AddressData:
-    """
-    Geocode an address using Google Geocoding API.
-    
-    Returns structured address data including street, number, neighborhood,
-    city, state, zip_code, latitude, and longitude.
-    
-    Args:
-        address: Address string to geocode (e.g., "Rua Exemplo, 123, São Paulo, SP")
-        current_user: Current authenticated user
-        
-    Returns:
-        AddressData with parsed address components
-        
-    Raises:
-        HTTPException: If geocoding fails or API key is not configured
-    """
     settings = get_settings()
     
     # Check if API key is configured

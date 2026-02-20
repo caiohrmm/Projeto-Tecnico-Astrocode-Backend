@@ -120,54 +120,54 @@ class PropertyUpdate(BaseModel):
     All fields are optional to allow partial updates.
     """
 
-    code: str | None = Field(None, min_length=1, max_length=50)
-    title: str | None = Field(None, min_length=1, max_length=255)
-    description: str | None = None
+    code: str | None = Field(None, min_length=1, max_length=50, description="Código do imóvel (único)")
+    title: str | None = Field(None, min_length=1, max_length=255, description="Título")
+    description: str | None = Field(None, description="Descrição")
 
     # Type
-    property_type: PropertyType | None = None
-    business_type: BusinessType | None = None
+    property_type: PropertyType | None = Field(None, description="Tipo de imóvel")
+    business_type: BusinessType | None = Field(None, description="Tipo de negócio (SALE, RENT, BOTH)")
 
     # Location
-    street: str | None = Field(None, min_length=1, max_length=255)
-    number: str | None = Field(None, min_length=1, max_length=20)
-    neighborhood: str | None = Field(None, min_length=1, max_length=255)
-    city: str | None = Field(None, min_length=1, max_length=255)
-    state: str | None = Field(None, min_length=2, max_length=2)
-    zip_code: str | None = Field(None, min_length=1, max_length=10)
-    latitude: Decimal | None = None
-    longitude: Decimal | None = None
+    street: str | None = Field(None, min_length=1, max_length=255, description="Rua")
+    number: str | None = Field(None, min_length=1, max_length=20, description="Número")
+    neighborhood: str | None = Field(None, min_length=1, max_length=255, description="Bairro")
+    city: str | None = Field(None, min_length=1, max_length=255, description="Cidade")
+    state: str | None = Field(None, min_length=2, max_length=2, description="Estado (2 letras)")
+    zip_code: str | None = Field(None, min_length=1, max_length=10, description="CEP")
+    latitude: Decimal | None = Field(None, description="Latitude")
+    longitude: Decimal | None = Field(None, description="Longitude")
 
     # Characteristics
-    area_total: Decimal | None = Field(None, ge=0)
-    area_built: Decimal | None = Field(None, ge=0)
-    bedrooms: int | None = Field(None, ge=0)
-    bathrooms: int | None = Field(None, ge=0)
-    parking_spaces: int | None = Field(None, ge=0)
-    floor: int | None = None
-    has_elevator: bool | None = None
-    furnished: bool | None = None
+    area_total: Decimal | None = Field(None, ge=0, description="Área total (m²)")
+    area_built: Decimal | None = Field(None, ge=0, description="Área construída (m²)")
+    bedrooms: int | None = Field(None, ge=0, description="Quartos")
+    bathrooms: int | None = Field(None, ge=0, description="Banheiros")
+    parking_spaces: int | None = Field(None, ge=0, description="Vagas")
+    floor: int | None = Field(None, description="Andar (apartamentos)")
+    has_elevator: bool | None = Field(None, description="Possui elevador")
+    furnished: bool | None = Field(None, description="Mobiliado")
 
     # Financial
-    price: Decimal | None = Field(None, ge=0)
-    rent_price: Decimal | None = Field(None, ge=0)
-    condo_fee: Decimal | None = Field(None, ge=0)
-    iptu: Decimal | None = Field(None, ge=0)
+    price: Decimal | None = Field(None, ge=0, description="Preço de venda")
+    rent_price: Decimal | None = Field(None, ge=0, description="Preço de aluguel")
+    condo_fee: Decimal | None = Field(None, ge=0, description="Condomínio")
+    iptu: Decimal | None = Field(None, ge=0, description="IPTU")
 
     # Commercial
-    status: PropertyStatus | None = None
-    assigned_agent_id: uuid.UUID | None = None
+    status: PropertyStatus | None = Field(None, description="Status (DRAFT, PUBLISHED, SOLD, etc.)")
+    assigned_agent_id: uuid.UUID | None = Field(None, description="ID do agente (deve ser corretor)")
 
     # Owner
-    owner_name: str | None = Field(None, max_length=255)
-    owner_contact: str | None = Field(None, max_length=255)
+    owner_name: str | None = Field(None, max_length=255, description="Nome do proprietário")
+    owner_contact: str | None = Field(None, max_length=255, description="Contato do proprietário")
 
     # AI / Matching
-    visibility_score: int | None = Field(None, ge=0, le=100)
-    ideal_client_profile: str | None = None
+    visibility_score: int | None = Field(None, ge=0, le=100, description="Score de visibilidade (0–100)")
+    ideal_client_profile: str | None = Field(None, description="Perfil ideal do cliente")
 
     # Media
-    main_image_url: str | None = Field(None, max_length=500)
+    main_image_url: str | None = Field(None, max_length=500, description="URL da imagem principal")
 
     @field_validator("state")
     @classmethod
@@ -205,10 +205,10 @@ class PropertyResponse(PropertyBase):
     Includes all base fields plus id and timestamps.
     """
 
-    id: uuid.UUID
-    published_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    id: uuid.UUID = Field(..., description="UUID do imóvel")
+    published_at: datetime | None = Field(None, description="Data de publicação (quando status = PUBLISHED)")
+    created_at: datetime = Field(..., description="Data de criação")
+    updated_at: datetime = Field(..., description="Data da última atualização")
 
     class Config:
         """Pydantic config."""
@@ -242,13 +242,13 @@ class GeocodeResponse(BaseModel):
 
 
 class AddressData(BaseModel):
-    """Parsed address data for property form."""
+    """Endereço parseado retornado pelo geocode (Google)."""
 
-    street: str | None = None
-    number: str | None = None
-    neighborhood: str | None = None
-    city: str | None = None
-    state: str | None = None
-    zip_code: str | None = None
-    latitude: str | None = None
-    longitude: str | None = None
+    street: str | None = Field(None, description="Rua")
+    number: str | None = Field(None, description="Número")
+    neighborhood: str | None = Field(None, description="Bairro")
+    city: str | None = Field(None, description="Cidade")
+    state: str | None = Field(None, description="Estado (sigla)")
+    zip_code: str | None = Field(None, description="CEP")
+    latitude: str | None = Field(None, description="Latitude")
+    longitude: str | None = Field(None, description="Longitude")
