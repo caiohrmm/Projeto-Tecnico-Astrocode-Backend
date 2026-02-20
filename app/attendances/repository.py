@@ -1632,11 +1632,39 @@ class AttendanceRepository:
                 client_status_update.model_dump(exclude_unset=True) if hasattr(client_status_update, "model_dump") else client_status_update
             )
 
-        # PROTECTION: Block raw_content updates for closed cycles
-        # Once a cycle is closed (COMPLETED, LOST, ABANDONED), no new conversations can be added
+        # When linking a property for the first time: append system message and trigger AI refresh
+        property_id_just_linked = (
+            "property_id" in update_data
+            and update_data["property_id"] is not None
+            and attendance.property_id is None
+        )
         closed_statuses = [AttendanceStatus.COMPLETED, AttendanceStatus.LOST, AttendanceStatus.ABANDONED]
         is_currently_closed = attendance.status in closed_statuses
-        
+
+        if property_id_just_linked and not is_currently_closed:
+            from datetime import datetime, timezone
+            from app.properties.repository import PropertyRepository
+            prop_id = update_data["property_id"]
+            if isinstance(prop_id, str):
+                prop_id = uuid.UUID(prop_id)
+            prop_repo = PropertyRepository(self.db)
+            prop = prop_repo.get_by_id(prop_id)
+            if prop:
+                now = datetime.now(timezone.utc)
+                ts = now.strftime("%Y-%m-%d %H:%M")
+                code = prop.code or "N/A"
+                title = (prop.title or "").strip() or "Imóvel"
+                line = (
+                    f"\n\n[{ts}] [Sistema] Cliente demonstrou interesse no imóvel {code} - {title}. "
+                    "Propriedade vinculada ao atendimento."
+                )
+                update_data["raw_content"] = (attendance.raw_content or "") + line
+                logger.info(
+                    f"Appended property-link system message to attendance {attendance.id} for property {prop.code}"
+                )
+
+        # PROTECTION: Block raw_content updates for closed cycles
+        # Once a cycle is closed (COMPLETED, LOST, ABANDONED), no new conversations can be added
         if "raw_content" in update_data and is_currently_closed:
             logger.warning(
                 f"Attempted to update raw_content of closed attendance {attendance.id} "
@@ -1714,6 +1742,9 @@ class AttendanceRepository:
         elif should_regen_ai:
             # Regenerate AI summary if relevant fields changed and attendance is completed
             self._process_completed_attendance(attendance)
+        elif property_id_just_linked and attendance.status == AttendanceStatus.ACTIVE:
+            # Property was just linked: regenerate AI summary so insights reflect the new interest
+            self._generate_ai_summary(attendance)
         
         # If status changed to closed (COMPLETED, LOST, or ABANDONED), add timeline event
         if status_changed_to_closed:
