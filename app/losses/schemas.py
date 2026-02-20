@@ -12,19 +12,19 @@ from app.losses.models import LossReason, LossStage
 class LossBase(BaseModel):
     """Base schema for Loss."""
 
-    client_id: uuid.UUID = Field(..., description="Client ID (required)")
-    property_id: uuid.UUID | None = Field(None, description="Property ID if applicable")
-    broker_id: uuid.UUID | None = Field(None, description="Broker ID")
-    
-    loss_reason: LossReason = Field(..., description="Primary reason for loss")
-    loss_stage: LossStage = Field(..., description="Stage at which client was lost")
-    
-    detailed_reason: str | None = Field(None, description="Detailed explanation")
-    client_feedback: str | None = Field(None, description="Client's feedback")
-    competitor_info: str | None = Field(None, description="Competitor information")
-    
-    could_have_been_prevented: bool | None = Field(None, description="Could this have been prevented?")
-    lessons_learned: str | None = Field(None, description="Lessons learned")
+    client_id: uuid.UUID = Field(..., description="ID do cliente")
+    property_id: uuid.UUID | None = Field(None, description="ID do imóvel (se aplicável)")
+    broker_id: uuid.UUID | None = Field(None, description="ID do corretor")
+
+    loss_reason: LossReason = Field(..., description="Motivo principal da perda (enum LossReason)")
+    loss_stage: LossStage = Field(..., description="Estágio em que o cliente foi perdido (enum LossStage)")
+
+    detailed_reason: str | None = Field(None, description="Explicação detalhada")
+    client_feedback: str | None = Field(None, description="Feedback do cliente")
+    competitor_info: str | None = Field(None, description="Informação sobre concorrência")
+
+    could_have_been_prevented: bool | None = Field(None, description="Poderia ter sido evitado?")
+    lessons_learned: str | None = Field(None, description="Lições aprendidas")
 
 
 class LossCreate(LossBase):
@@ -33,72 +33,57 @@ class LossCreate(LossBase):
 
 
 class LossUpdate(BaseModel):
-    """Schema for updating a loss record."""
+    """Schema for updating a loss record. All fields optional."""
 
-    loss_reason: LossReason | None = None
-    loss_stage: LossStage | None = None
-    detailed_reason: str | None = None
-    client_feedback: str | None = None
-    competitor_info: str | None = None
-    could_have_been_prevented: bool | None = None
-    lessons_learned: str | None = None
+    loss_reason: LossReason | None = Field(None, description="Motivo da perda")
+    loss_stage: LossStage | None = Field(None, description="Estágio da perda")
+    detailed_reason: str | None = Field(None, description="Explicação detalhada")
+    client_feedback: str | None = Field(None, description="Feedback do cliente")
+    competitor_info: str | None = Field(None, description="Informação sobre concorrência")
+    could_have_been_prevented: bool | None = Field(None, description="Poderia ter sido evitado?")
+    lessons_learned: str | None = Field(None, description="Lições aprendidas")
 
 
 class LossResponse(LossBase):
-    """Schema for loss response."""
+    """Schema for loss response (inclui nomes de cliente, imóvel e corretor)."""
 
-    id: uuid.UUID
-    ai_analysis: str | None = None
-    ai_recommendations: str | None = None
-    lost_at: datetime
-    created_at: datetime
+    id: uuid.UUID = Field(..., description="UUID da perda")
+    ai_analysis: str | None = Field(None, description="Análise da perda pela IA (preenchida em background)")
+    ai_recommendations: str | None = Field(None, description="Recomendações da IA")
+    lost_at: datetime = Field(..., description="Data/hora em que a perda foi registrada")
+    created_at: datetime = Field(..., description="Data de criação do registro")
 
     # Related entity names
-    client_name: str | None = None
-    property_title: str | None = None
-    broker_name: str | None = None
+    client_name: str | None = Field(None, description="Nome do cliente")
+    property_title: str | None = Field(None, description="Título do imóvel")
+    broker_name: str | None = Field(None, description="Nome do corretor")
 
     class Config:
         from_attributes = True
 
 
 class LossPatternAnalysis(BaseModel):
-    """Schema for AI-generated loss pattern analysis."""
+    """Análise de padrões de perda gerada pela IA."""
 
-    total_losses: int = 0
-    period_analyzed: str = ""
-    
-    # Top reasons
-    top_reasons: List[dict] = Field(default_factory=list, description="Most common loss reasons with counts")
-    
-    # Stage analysis
-    critical_stages: List[dict] = Field(default_factory=list, description="Stages with most losses")
-    
-    # Pattern insights
-    patterns_detected: List[str] = Field(default_factory=list, description="AI-detected patterns")
-    
-    # Recommendations
-    recommendations: List[str] = Field(default_factory=list, description="AI recommendations to reduce losses")
-    
-    # Risk factors
-    risk_factors: List[str] = Field(default_factory=list, description="Identified risk factors")
-    
-    # Success comparison
-    success_vs_loss_insights: str | None = Field(None, description="Comparison with successful deals")
-    
-    # Overall summary
-    summary: str = ""
+    total_losses: int = Field(0, description="Total de perdas no período")
+    period_analyzed: str = Field("", description="Descrição do período analisado")
+
+    top_reasons: List[dict] = Field(default_factory=list, description="Motivos mais frequentes com contagem")
+    critical_stages: List[dict] = Field(default_factory=list, description="Estágios com mais perdas")
+    patterns_detected: List[str] = Field(default_factory=list, description="Padrões detectados pela IA")
+    recommendations: List[str] = Field(default_factory=list, description="Recomendações para reduzir perdas")
+    risk_factors: List[str] = Field(default_factory=list, description="Fatores de risco identificados")
+    success_vs_loss_insights: str | None = Field(None, description="Comparação com negócios ganhos")
+    summary: str = Field("", description="Resumo geral da análise")
 
 
 class LossStats(BaseModel):
-    """Schema for loss statistics."""
+    """Estatísticas agregadas de perdas."""
 
-    total_losses: int = 0
-    losses_by_reason: dict = Field(default_factory=dict)
-    losses_by_stage: dict = Field(default_factory=dict)
-    preventable_count: int = 0
-    avg_days_to_loss: float = 0.0
-    
-    # Monthly trend
-    monthly_losses: List[dict] = Field(default_factory=list)
+    total_losses: int = Field(0, description="Total de perdas")
+    losses_by_reason: dict = Field(default_factory=dict, description="Perdas agrupadas por motivo")
+    losses_by_stage: dict = Field(default_factory=dict, description="Perdas agrupadas por estágio")
+    preventable_count: int = Field(0, description="Quantidade marcada como evitável")
+    avg_days_to_loss: float = Field(0.0, description="Média de dias até a perda")
+    monthly_losses: List[dict] = Field(default_factory=list, description="Tendência mensal (lista de {month, count, ...})")
 

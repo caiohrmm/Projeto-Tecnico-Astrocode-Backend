@@ -48,40 +48,67 @@ def _enrich_loss_response(loss: ClientLoss) -> dict:
     }
 
 
-@router.post("/", response_model=LossResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=LossResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar perda de cliente",
+    description="""
+Registra a perda de um cliente (negócio não fechado).
+
+**Efeitos automáticos:**
+- **Cliente:** status atualizado para **LOST**.
+- **Atendimento:** o atendimento ACTIVE do cliente é fechado com status **LOST**; o resumo da IA é regenerado e o lead score do cliente pode ser ajustado.
+- **Timeline:** evento "Cliente perdido" adicionado na timeline do cliente.
+- **IA:** análise da perda (ai_analysis, ai_recommendations) é disparada em background.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        201: {"description": "Perda registrada"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Cliente não encontrado"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def create_loss(
     loss_data: LossCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> LossResponse:
-    """
-    Register a lost client.
-
-    This endpoint:
-    - Creates the loss record with reason and stage
-    - Updates client status to LOST
-    - Adds timeline event
-    - Triggers AI analysis of the loss
-    """
     loss_repo = LossRepository(db)
     loss = loss_repo.create(loss_data)
     return LossResponse(**_enrich_loss_response(loss))
 
 
-@router.get("/", response_model=List[LossResponse])
+@router.get(
+    "/",
+    response_model=List[LossResponse],
+    summary="Listar perdas",
+    description="""
+Lista registros de perda de clientes com paginação e filtros opcionais.
+
+**Filtros:** client_id, broker_id, loss_reason, loss_stage, start_date, end_date. Resposta inclui nomes do cliente, imóvel e corretor.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Lista de perdas"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def list_losses(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records"),
-    client_id: uuid.UUID | None = Query(None, description="Filter by client ID"),
-    broker_id: uuid.UUID | None = Query(None, description="Filter by broker ID"),
-    loss_reason: LossReason | None = Query(None, description="Filter by loss reason"),
-    loss_stage: LossStage | None = Query(None, description="Filter by loss stage"),
-    start_date: datetime | None = Query(None, description="Start date filter"),
-    end_date: datetime | None = Query(None, description="End date filter"),
+    skip: int = Query(0, ge=0, description="Registros a pular (paginação)"),
+    limit: int = Query(100, ge=1, le=1000, description="Máximo de registros"),
+    client_id: uuid.UUID | None = Query(None, description="Filtrar por cliente"),
+    broker_id: uuid.UUID | None = Query(None, description="Filtrar por corretor"),
+    loss_reason: LossReason | None = Query(None, description="Filtrar por motivo da perda"),
+    loss_stage: LossStage | None = Query(None, description="Filtrar por estágio da perda"),
+    start_date: datetime | None = Query(None, description="Data inicial"),
+    end_date: datetime | None = Query(None, description="Data final"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> List[LossResponse]:
-    """List all losses with optional filters."""
     loss_repo = LossRepository(db)
     losses = loss_repo.get_all(
         skip=skip,
@@ -96,15 +123,27 @@ def list_losses(
     return [LossResponse(**_enrich_loss_response(loss)) for loss in losses]
 
 
-@router.get("/stats", response_model=LossStats)
+@router.get(
+    "/stats",
+    response_model=LossStats,
+    summary="Estatísticas de perdas",
+    description="""
+Retorna estatísticas agregadas: total de perdas, por motivo, por estágio, quantidade evitáveis, média de dias até a perda, tendência mensal. Filtros opcionais: broker_id, start_date, end_date.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Estatísticas (LossStats)"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def get_loss_stats(
-    broker_id: uuid.UUID | None = Query(None, description="Filter by broker ID"),
-    start_date: datetime | None = Query(None, description="Start date filter"),
-    end_date: datetime | None = Query(None, description="End date filter"),
+    broker_id: uuid.UUID | None = Query(None, description="Filtrar por corretor"),
+    start_date: datetime | None = Query(None, description="Data inicial"),
+    end_date: datetime | None = Query(None, description="Data final"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> LossStats:
-    """Get loss statistics."""
     loss_repo = LossRepository(db)
     return loss_repo.get_stats(
         broker_id=broker_id,
@@ -113,22 +152,28 @@ def get_loss_stats(
     )
 
 
-@router.get("/patterns", response_model=LossPatternAnalysis)
+@router.get(
+    "/patterns",
+    response_model=LossPatternAnalysis,
+    summary="Análise de padrões de perda (IA)",
+    description="""
+Analisa padrões de perdas usando IA no período informado (days, entre 7 e 365; padrão 90).
+
+**Retorno:** motivos mais frequentes, estágios críticos, padrões detectados, recomendações para reduzir perdas, fatores de risco e comparação com negócios ganhos (success_vs_loss_insights). Filtro opcional: broker_id.
+
+Requer autenticação.
+    """.strip(),
+    responses={
+        200: {"description": "Análise de padrões (LossPatternAnalysis)"},
+        401: {"description": "Não autenticado"},
+    },
+)
 def analyze_loss_patterns(
-    broker_id: uuid.UUID | None = Query(None, description="Filter by broker ID"),
-    days: int = Query(90, ge=7, le=365, description="Number of days to analyze"),
+    broker_id: uuid.UUID | None = Query(None, description="Filtrar por corretor"),
+    days: int = Query(90, ge=7, le=365, description="Dias para análise (7–365, padrão 90)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> LossPatternAnalysis:
-    """
-    Analyze loss patterns using AI.
-
-    This endpoint uses AI to:
-    - Identify recurring patterns in lost deals
-    - Detect risk factors
-    - Generate actionable recommendations
-    - Compare with successful deals
-    """
     loss_repo = LossRepository(db)
     return loss_repo.analyze_patterns(
         broker_id=broker_id,
@@ -136,13 +181,22 @@ def analyze_loss_patterns(
     )
 
 
-@router.get("/{loss_id}", response_model=LossResponse)
+@router.get(
+    "/{loss_id}",
+    response_model=LossResponse,
+    summary="Buscar perda por ID",
+    description="Retorna um registro de perda pelo UUID. Inclui motivo, estágio, análise e recomendações da IA, nomes do cliente, imóvel e corretor.",
+    responses={
+        200: {"description": "Perda encontrada"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Perda não encontrada"},
+    },
+)
 def get_loss(
     loss_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> LossResponse:
-    """Get a loss by ID with full details."""
     loss_repo = LossRepository(db)
     loss = loss_repo.get_by_id(loss_id)
 
@@ -155,14 +209,24 @@ def get_loss(
     return LossResponse(**_enrich_loss_response(loss))
 
 
-@router.put("/{loss_id}", response_model=LossResponse)
+@router.put(
+    "/{loss_id}",
+    response_model=LossResponse,
+    summary="Atualizar perda",
+    description="Atualização parcial: apenas os campos enviados são alterados. Não altera status do cliente (já LOST). Requer autenticação.",
+    responses={
+        200: {"description": "Perda atualizada"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Perda não encontrada"},
+        422: {"description": "Dados inválidos"},
+    },
+)
 def update_loss(
     loss_id: uuid.UUID,
     loss_data: LossUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> LossResponse:
-    """Update a loss record."""
     loss_repo = LossRepository(db)
     loss = loss_repo.get_by_id(loss_id)
 
@@ -176,13 +240,22 @@ def update_loss(
     return LossResponse(**_enrich_loss_response(updated_loss))
 
 
-@router.delete("/{loss_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{loss_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir perda",
+    description="Remove o registro de perda do sistema. O status do cliente (LOST) não é alterado automaticamente. Operação irreversível. Requer autenticação.",
+    responses={
+        204: {"description": "Perda excluída"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Perda não encontrada"},
+    },
+)
 def delete_loss(
     loss_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> None:
-    """Delete a loss record."""
     loss_repo = LossRepository(db)
     loss = loss_repo.get_by_id(loss_id)
 
