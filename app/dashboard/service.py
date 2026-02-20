@@ -1,7 +1,7 @@
 """Dashboard metrics service for AI chat context."""
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -23,7 +23,7 @@ def get_dashboard_context_for_chat(db: Session) -> dict[str, Any]:
     Load dashboard metrics for AI chat context.
     Returns a condensed structure suitable for the assistant to interpret.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Clients
     clients = list(db.scalars(select(Client)).all())
@@ -87,7 +87,8 @@ def get_dashboard_context_for_chat(db: Session) -> dict[str, Any]:
         if clients_by_status.get(key, 0) > 0
     ]
 
-    # Monthly trends (last 6 months)
+    # Monthly trends (last 6 months) — use UTC para comparar com created_at/lost_at do banco (timezone-aware)
+    tz_utc = timezone.utc
     monthly_trends = []
     for i in range(5, -1, -1):
         m = now.month - i
@@ -95,11 +96,11 @@ def get_dashboard_context_for_chat(db: Session) -> dict[str, Any]:
         if m <= 0:
             m += 12
             y -= 1
-        month_start = datetime(y, m, 1)
+        month_start = datetime(y, m, 1, tzinfo=tz_utc)
         if m == 12:
-            month_end = datetime(y + 1, 1, 1)
+            month_end = datetime(y + 1, 1, 1, tzinfo=tz_utc)
         else:
-            month_end = datetime(y, m + 1, 1)
+            month_end = datetime(y, m + 1, 1, tzinfo=tz_utc)
         month_clients = len([c for c in clients if c.created_at and month_start <= c.created_at < month_end])
         month_sales = len([s for s in completed_sales if s.created_at and month_start <= s.created_at < month_end])
         month_sales_value = sum(float(s.sale_value or 0) for s in completed_sales if s.created_at and month_start <= s.created_at < month_end)
@@ -141,13 +142,18 @@ def get_dashboard_context_for_chat(db: Session) -> dict[str, Any]:
         )[:5]
     ]
     seven_days_ago = now - timedelta(days=7)
-    at_risk = [
-        {"name": c.name, "urgency": c.current_urgency_level.value if c.current_urgency_level else None}
-        for c in clients
-        if c.last_contact_at and c.last_contact_at < seven_days_ago
-        and c.current_urgency_level and c.current_urgency_level.value in ("HIGH", "IMMEDIATE")
-        and c.current_status and c.current_status.value not in ("WON", "LOST", "INACTIVE")
-    ][:5]
+    at_risk = []
+    for c in clients:
+        if c.current_status and c.current_status.value in ("WON", "LOST", "INACTIVE"):
+            continue
+        if not c.last_contact_at or c.last_contact_at >= seven_days_ago:
+            continue
+        urgency = c.current_urgency_level.value if c.current_urgency_level else None
+        if urgency not in ("HIGH", "IMMEDIATE"):
+            continue
+        at_risk.append({"name": c.name or "N/A", "urgency": urgency})
+        if len(at_risk) >= 5:
+            break
     high_value = [
         {"name": c.name, "budget_max": float(c.current_budget_max) if c.current_budget_max else 0}
         for c in sorted(

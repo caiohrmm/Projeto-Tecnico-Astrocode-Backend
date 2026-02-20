@@ -257,13 +257,14 @@ class ChatService:
                         "current_urgency_level": client.current_urgency_level.value if client.current_urgency_level else None,
                     }
 
-        # Load dashboard metrics when requested (e.g. from dashboard page)
+        # Load dashboard metrics when requested (e.g. from dashboard page or when user asks for dashboard summary)
         if include_dashboard:
             from app.dashboard.service import get_dashboard_context_for_chat
             try:
                 context["dashboard_data"] = get_dashboard_context_for_chat(self.db)
             except Exception as e:
-                logger.warning(f"Could not load dashboard context: {e}")
+                logger.exception("Could not load dashboard context: %s", e)
+                context["dashboard_data"] = None
 
         return context
 

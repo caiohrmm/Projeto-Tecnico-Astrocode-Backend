@@ -109,7 +109,10 @@ Quando contexto do sistema for fornecido, você receberá informações sobre:
 - Atendimentos (interações, notas, datas)
 - DASHBOARD EXECUTIVA (quando o gestor estiver na dashboard): métricas consolidadas do negócio - total de clientes, vendas, taxa de conversão, funil, desempenho de corretores, tendências mensais, oportunidades, clientes em risco, leads de alto valor
 
-Para contexto de DASHBOARD: o gestor precisa de interpretação e insights. Responda de forma estruturada, destaque os pontos mais relevantes, sugira ações prioritárias, compare tendências e identifique o que merece atenção imediata. Seja conciso mas completo.
+Para contexto de DASHBOARD:
+- Se o contexto incluir a seção "DADOS DA DASHBOARD EXECUTIVA", você TEM todas essas métricas. NUNCA responda que "não tem informações da dashboard" ou que "não há dados disponíveis" quando esses dados foram fornecidos.
+- Quando o usuário pedir "resumo das métricas da dashboard", "resumo da dashboard" ou visão geral para o gestor: use EXATAMENTE os dados do contexto e responda com um **resumo executivo completo em Markdown**, pronto para o gestor da imobiliária. Inclua: visão geral (1-2 frases), indicadores principais (clientes, vendas, conversão), funil de vendas, desempenho de corretores, tendências dos últimos meses, top oportunidades, clientes em risco e leads de alto valor. Use cabeçalhos (##, ###), listas, **destaques** e tabelas se fizer sentido. O objetivo é o gestor ler e já saber como está a imobiliária.
+- Em qualquer pergunta sobre a dashboard com contexto fornecido: responda de forma estruturada, destaque o que é mais relevante, sugira ações prioritárias quando fizer sentido e identifique o que merece atenção imediata.
 
 Use o contexto quando disponível para responder sobre dados específicos do sistema. Use seu conhecimento geral para responder perguntas sobre o mercado imobiliário brasileiro."""
 
@@ -282,11 +285,12 @@ def build_context_prompt(
         context_parts.append(f"- Clientes perdidos (LOST): {dashboard_data.get('lost_clients', 0)}")
         context_parts.append(f"- Lead score médio: {dashboard_data.get('avg_lead_score', 0)}")
         context_parts.append("")
-        context_parts.append("VENDAS:")
+        context_parts.append("VENDAS E PERDAS:")
         context_parts.append(f"- Vendas concluídas: {dashboard_data.get('sales_count', 0)}")
         context_parts.append(f"- Valor total vendido: R$ {dashboard_data.get('sales_total_value', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         context_parts.append(f"- Comissões: R$ {dashboard_data.get('sales_commission', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         context_parts.append(f"- Taxa de conversão: {dashboard_data.get('conversion_rate', 0)}%")
+        context_parts.append(f"- Perdas registradas: {dashboard_data.get('losses_count', 0)} | Taxa de perda (vs clientes): {dashboard_data.get('loss_rate', 0)}%")
         context_parts.append("")
         context_parts.append("ATIVIDADE:")
         context_parts.append(f"- Total de atendimentos: {dashboard_data.get('total_attendances', 0)}")
@@ -330,6 +334,8 @@ def build_context_prompt(
                 rev = t.get('revenue', 0)
                 rev_str = f"R$ {rev:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if rev else "0"
                 context_parts.append(f"  - {t.get('month', 'N/A')}: {t.get('clients', 0)} clientes, {t.get('sales', 0)} vendas, {t.get('losses', 0)} perdas, receita {rev_str}")
+        context_parts.append("")
+        context_parts.append("INSTRUÇÃO: Se o usuário pedir resumo das métricas da dashboard ou visão para o gestor, use os dados acima e responda com um relatório executivo completo em Markdown (## seções, listas, destaque de números). Inclua: visão geral, métricas principais, funil, vendas, corretores, tendências, oportunidades e alertas. NUNCA diga que não tem os dados da dashboard quando esta seção foi fornecida.")
         context_parts.append("")
     
     if not context_parts:

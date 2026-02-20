@@ -17,6 +17,28 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
+# Palavras-chave que indicam pedido de resumo/métricas da dashboard (carrega dashboard mesmo sem include_dashboard no body)
+DASHBOARD_MESSAGE_KEYWORDS = (
+    "dashboard",
+    "métricas da dashboard",
+    "resumo da dashboard",
+    "métricas",
+    "visão geral",
+    "resumo executivo",
+    "como está a imobiliária",
+    "como está o negócio",
+    "resuma as principais",
+    "resumo das principais",
+)
+
+
+def _message_asks_for_dashboard(message: str) -> bool:
+    """Return True if the message clearly asks for dashboard/summary metrics."""
+    if not message or not message.strip():
+        return False
+    lower = message.lower().strip()
+    return any(kw in lower for kw in DASHBOARD_MESSAGE_KEYWORDS)
+
 # Thread pool executor for blocking Gemini API calls
 _executor: ThreadPoolExecutor | None = None
 
@@ -68,14 +90,17 @@ async def chat(
     try:
         chat_service = ChatService(db)
         
+        # Incluir dashboard quando o frontend pedir OU quando a mensagem pedir resumo da dashboard
+        include_dashboard = request.include_dashboard or _message_asks_for_dashboard(request.message)
+        
         # Load context data if IDs provided or dashboard requested
         context_data = None
-        if request.context or request.include_dashboard:
+        if request.context or include_dashboard:
             context_data = chat_service.load_context(
                 client_id=request.context.client_id if request.context else None,
                 property_id=request.context.property_id if request.context else None,
                 attendance_id=request.context.attendance_id if request.context else None,
-                include_dashboard=request.include_dashboard,
+                include_dashboard=include_dashboard,
             )
         
         # Run Gemini API call in thread pool to avoid blocking event loop
