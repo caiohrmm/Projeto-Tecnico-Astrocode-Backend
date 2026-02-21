@@ -18,7 +18,7 @@ def calculate_visibility_score(property_obj: Property) -> int:
     - Informações básicas (25): título, descrição, código, imagem
     - Localização (20): cidade, bairro, endereço, CEP
     - Características (25): área, quartos, banheiros, vagas, extras
-    - Financeiro (20): preço, condomínio/IPTU
+    - Financeiro (20): preço (venda ou aluguel) vale 18 pts; condomínio/IPTU bônus opcional +2 pts
     - Comercial (10): status publicado, agente atribuído
 
     Args:
@@ -76,14 +76,13 @@ def calculate_visibility_score(property_obj: Property) -> int:
     score += min(char_score, 25)
 
     # --- Financeiro (20 pts máx) ---
+    # Preço (venda ou aluguel) é o principal; condomínio/IPTU são bônus opcional (nem sempre informados)
     price_val = _to_float(property_obj.price) or _to_float(property_obj.rent_price)
     fin_score = 0
     if price_val and price_val > 0:
-        fin_score += 10
+        fin_score += 18  # Ter preço já garante quase toda a pontuação financeira
     if _to_float(property_obj.condo_fee) is not None or _to_float(property_obj.iptu) is not None:
-        fin_score += 5
-    if price_val and price_val > 0:
-        fin_score += 5  # preço definido
+        fin_score += 2   # Bônus opcional; não penaliza quem não informa
     score += min(fin_score, 20)
 
     # --- Comercial (10 pts) ---
