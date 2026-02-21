@@ -35,6 +35,7 @@ A **API está totalmente documentada** no Swagger: todos os endpoints possuem de
 - [8. API (endpoints)](#8-api-endpoints)
 - [9. Segurança e autenticação](#9-segurança-e-autenticação)
 - [10. Destaques técnicos e proteções](#10-destaques-técnicos-e-proteções)
+- [Fluxos para testar (usuário novo)](#fluxos-para-testar-usuário-novo)
 - [Testes](#-testes)
 - [Documentação adicional](#-documentação-adicional)
 - [Próximos passos](#-próximos-passos--melhorias-futuras)
@@ -537,6 +538,52 @@ As funcionalidades por área (clientes, atendimentos, imóveis, visitas, vendas,
 - Proteção contra SQL Injection (SQLAlchemy ORM)
 - CORS configurado
 - Headers de segurança
+
+---
+
+## Fluxos para testar (usuário novo)
+
+Estes fluxos ajudam um usuário novo a validar as funcionalidades principais da aplicação (frontend + API). Use o [acesso de teste (gestor)](#acesso-de-teste-usuário-gestor) para login.
+
+### 1. Propriedades recomendadas por IA
+
+- **Onde:** Detalhes de um **atendimento** (ciclo ativo) com conversa já registrada.
+- **O que fazer:** Crie um cliente, crie um atendimento com uma conversa que mencione **tipo de imóvel**, **cidade** ou **orçamento** (ex.: *"Cliente quer apartamento em São Paulo, orçamento até 500 mil"*). Salve e aguarde o processamento da IA.
+- **Resultado:** Na seção **Propriedades Recomendadas** (ou no resumo da IA) aparecem imóveis do cadastro que combinam com o perfil extraído da conversa. A IA usa tipo de interesse, cidade e faixa de orçamento para sugerir imóveis.
+
+### 2. APIs externas na criação de imóveis (localização)
+
+- **Onde:** Formulário de **criação ou edição de imóvel** (módulo Imóveis).
+- **O que fazer:**
+  - **CEP:** Informe um CEP válido; o sistema consulta **ViaCEP** e preenche logradouro, bairro, cidade e UF.
+  - **Endereço completo:** Use o botão de **geocoding** (buscar por endereço); o backend usa **Google Maps (Geocoding)** para obter latitude, longitude e complementar dados. Requer `GOOGLE_API_KEY` no `.env`.
+- **Resultado:** Endereço e coordenadas preenchidos automaticamente, sem digitar tudo à mão.
+
+### 3. Registro de venda (com conversas no atendimento)
+
+- **Onde:** Cliente com **atendimento ativo** (ACTIVE) e conversas já registradas.
+- **O que fazer:**
+  1. Crie um cliente e um atendimento com uma ou mais conversas (ex.: *"Cliente interessado no apartamento X, quer fechar negócio"*).
+  2. Opcional: vincule um imóvel ao atendimento (Alterar imóvel).
+  3. Na página de **detalhes do atendimento**, use **Registrar Venda**.
+  4. Preencha valor, forma de pagamento, corretor etc. e confirme.
+- **Resultado:** A venda é criada, o **ciclo de atendimento é fechado** (status COMPLETED), o cliente passa a **Ganho** (WON), o imóvel fica **Vendido/Alugado**, e uma **conversa automática de finalização** é adicionada ao histórico do atendimento (*"Venda registrada. Ciclo encerrado como concluído (venda/aluguel)."*).
+
+### 4. Registro de perda de atendimento
+
+- **Onde:** Cliente com **atendimento ativo** (ACTIVE).
+- **O que fazer:**
+  1. Tenha um atendimento em andamento (com ou sem conversas).
+  2. Na página de **detalhes do atendimento**, use **Registrar Perda**.
+  3. Informe motivo da perda (ex.: preço alto, cliente desistiu), estágio e, se quiser, detalhes ou feedback.
+  4. Confirme.
+- **Resultado:** O **ciclo é fechado** como LOST, o cliente passa a **Perdido** (LOST), uma **conversa automática de finalização** é adicionada (*"Perda registrada. Ciclo encerrado como perdido."*), e o registro de perda fica disponível para análise (módulo Perdas). A IA pode analisar padrões de perda em background.
+
+### 5. Cancelamento de venda (sincronização)
+
+- **Onde:** Uma **venda** já registrada (status PENDING, por exemplo) que o gestor decide negar.
+- **O que fazer:** Na listagem ou detalhe de vendas, **cancele a venda** (botão/ação de cancelar).
+- **Resultado:** A venda fica CANCELLED, o cliente volta para **Perdido** (LOST), o imóvel volta para **Publicado** (PUBLISHED), é criado um **registro de perda** com motivo "Venda negada pelo gestor", e o **atendimento** que tinha sido fechado com essa venda é atualizado para **Perdido** (LOST), com mensagem de finalização no histórico. Tudo permanece sincronizado.
 
 ---
 
