@@ -29,6 +29,7 @@ A **API está totalmente documentada** no Swagger: todos os endpoints possuem de
   - [Variáveis de ambiente (.env)](#variáveis-de-ambiente-env)
 - [4. Modelos e banco de dados](#4-modelos-e-banco-de-dados)
 - [5. Fluxo central: cliente e ciclos de atendimento](#5-fluxo-central-cliente-e-ciclos-de-atendimento)
+  - [Fluxo em prática: exemplo do dia a dia](#fluxo-em-prática-exemplo-do-dia-a-dia)
 - [6. Visitas, vendas e perdas (vinculadas ao cliente)](#6-visitas-vendas-e-perdas-vinculadas-ao-cliente)
 - [7. Funcionalidades da IA](#7-funcionalidades-da-ia)
   - [Aviso sobre tempo de resposta](#aviso-sobre-tempo-de-resposta)
@@ -203,6 +204,38 @@ alembic upgrade head
 2. **Criar atendimento** (ou adicionar conversa ao ACTIVE) → IA gera resumo, intenção, urgência, próximos passos; atualiza perfil do cliente com base só no ACTIVE; pode detectar intenção de visita ou menção a imóvel.
 3. **Vincular imóvel** → único campo editável do atendimento (PUT com `property_id`).
 4. **Fechar ciclo** → por **Registrar venda**, **Registrar perda** ou **Marcar como concluído** (status COMPLETED). Venda/perda aplicam lead score de fechamento no cliente e preenchem key_points (property_purchased / property_lost) no resumo da IA.
+
+### Fluxo em prática: exemplo do dia a dia
+
+Um jeito de enxergar o sistema é acompanhar um caso do início ao fim:
+
+1. **Cadastro do cliente**  
+   Você cadastra o cliente no sistema (nome, contato, etc.). O perfil começa com valores padrão; a IA vai refiná-lo conforme os atendimentos.
+
+2. **Cliente entra em contato**  
+   Exemplo: o cliente liga ou manda mensagem querendo **uma casa em Santa Cruz do Rio Pardo**, com ou sem orçamento definido.
+
+3. **Criação do atendimento**  
+   Você cria um **atendimento** para esse cliente e coloca na conversa o que ele pediu (ex.: *"Cliente ligou pela manhã procurando com urgência uma casa para morar em Santa Cruz do Rio Pardo. Orçamento de R$ 1.000.000"*). Ao salvar, a IA analisa o texto, extrai cidade, tipo de imóvel, orçamento e urgência, atualiza o **perfil do cliente** (cidade de interesse, orçamento, etc.) e gera o **resumo** e os **próximos passos**.
+
+4. **Recomendações no atendimento**  
+   No próprio atendimento a IA **recomenda imóveis** do cadastro que batem com o perfil — no exemplo, casas em Santa Cruz do Rio Pardo, dentro (ou próximas) do orçamento informado. Você pode usar essa lista para apresentar opções ao cliente.
+
+5. **Negociação: ir adicionando conversas**  
+   À medida que a negociação avança, você **adiciona conversas** ao mesmo atendimento (novas mensagens, acordos, dúvidas). A cada adição a IA reprocessa, atualiza o resumo, o perfil e as recomendações. Não é preciso criar outro atendimento; tudo fica no **mesmo ciclo ativo**.
+
+6. **Marcar visita**  
+   Quando o cliente quiser conhecer um imóvel, você agenda uma **visita** (manual ou a partir da detecção de intenção da IA). A visita fica vinculada ao atendimento e, se quiser, ao imóvel.
+
+7. **Vínculo do imóvel ao atendimento**  
+   Se o cliente se interessar por um imóvel específico, use **Alterar imóvel** no atendimento para vincular esse imóvel ao ciclo. Só assim é possível **Registrar venda** ou **Registrar perda** para esse ciclo.
+
+8. **Fechar a negociação**  
+   No detalhe do atendimento você usa:
+   - **Registrar venda** — quando fechar compra ou aluguel (informe valor, corretor, etc.). O ciclo é fechado como concluído, o cliente ganha lead score de fechamento e o imóvel passa a vendido/alugado.
+   - **Registrar perda** — quando a negociação não vingar (cliente desistiu, preço, etc.). O ciclo é fechado como perdido e o cliente/perda ficam registrados para análise.
+
+Resumindo: **cadastro → atendimento com a demanda (ex.: casa em Santa Cruz do Rio Pardo) → IA recomenda imóveis e atualiza o perfil → você vai adicionando conversas → marca visita → vincula imóvel se houver → registra venda ou perda.** Tudo fica atrelado ao cliente e ao ciclo de atendimento.
 
 ---
 
