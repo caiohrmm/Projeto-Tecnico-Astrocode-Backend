@@ -1000,8 +1000,10 @@ class ClientStateDerivationService:
         """
         from app.clients.timeline_models import ClientTimeline, TimelineEventType
         
-        # Lead score is ALWAYS controlled by AI, never manually set
+        # Lead score and status are ALWAYS controlled by AI from the active cycle, never manually set
         if field_name == "current_lead_score":
+            return False
+        if field_name == "current_status":
             return False
         
         current_value = getattr(client, field_name, None)

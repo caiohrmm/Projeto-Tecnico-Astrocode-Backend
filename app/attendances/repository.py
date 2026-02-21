@@ -1397,6 +1397,23 @@ class AttendanceRepository:
                     old_values["current_urgency_level"] = json_serializable_value(current_urgency)
                 update_data["current_urgency_level"] = detected_urgency
         
+        # Status: always sync from the active cycle's latest AI summary so it accompanies the negotiation.
+        # So the client is not stuck at "Novo Lead"; status advances/regresses with the cycle (CONTACTED, QUALIFIED, NEGOTIATING, etc.)
+        # and only becomes WON/LOST when the cycle is closed.
+        from app.clients.state_derivation_service import ClientStateDerivationService
+        suggested_status = ClientStateDerivationService._detect_client_status_from_signal(
+            ai_summary=ai_summary,
+            attendance=attendance,
+            detected_intent=ai_summary.detected_intent.value if ai_summary.detected_intent else None,
+            sentiment=ai_summary.sentiment.value if ai_summary.sentiment else None,
+            lead_score=ai_summary.lead_score_suggested,
+        )
+        if suggested_status is not None:
+            current_status = getattr(client, "current_status", None)
+            if current_status != suggested_status:
+                old_values["current_status"] = json_serializable_value(current_status)
+            update_data["current_status"] = suggested_status
+        
         # ⚠️ Status is now AI-controlled through State Derivation Service suggestions
         # The legacy _determine_client_status_from_ai is no longer used for status updates
         # Status updates come from StructuredSignal.client_status in the suggestions
