@@ -11,6 +11,8 @@
 
 **API em produção (Render):** [https://projeto-tecnico-astrocode-backend.onrender.com](https://projeto-tecnico-astrocode-backend.onrender.com) · [Docs (Swagger)](https://projeto-tecnico-astrocode-backend.onrender.com/docs)
 
+**Repositório do frontend (Vue):** [Frontend-Astrocode](https://github.com/caiohrmm/Frontend-Astrocode)
+
 A **API está totalmente documentada** no Swagger: todos os endpoints possuem descrição, regras de negócio, códigos de resposta e schemas de request/response em português. Use o link **Docs** acima para explorar e testar.
 
 </div>
