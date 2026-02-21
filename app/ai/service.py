@@ -139,11 +139,32 @@ class AISummaryService:
             else:
                 urgency_level = AISummaryService._detect_urgency(attendance.raw_content)
 
-            # Summary text: pass system context so AI states that deal was closed and which property
+            # Context of linked property (when attendance already has property_id): so the AI uses location/value in the summary
+            linked_property_context = None
+            if db and attendance.property_id:
+                prop_repo = PropertyRepository(db)
+                linked_prop = prop_repo.get_by_id(attendance.property_id)
+                if linked_prop:
+                    parts = []
+                    if linked_prop.city:
+                        parts.append(f"Cidade: {linked_prop.city}")
+                    if linked_prop.address:
+                        parts.append(f"Endereço: {linked_prop.address}")
+                    if linked_prop.neighborhood:
+                        parts.append(f"Bairro: {linked_prop.neighborhood}")
+                    if linked_prop.rent_price is not None and float(linked_prop.rent_price) > 0:
+                        parts.append(f"Valor de aluguel: R$ {float(linked_prop.rent_price):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    if linked_prop.price is not None and float(linked_prop.price) > 0:
+                        parts.append(f"Valor de venda: R$ {float(linked_prop.price):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    if parts:
+                        linked_property_context = "Imóvel já vinculado a este atendimento: " + "; ".join(parts)
+
+            # Summary text: pass system context and linked property so AI uses them in the summary
             summary_text = AISummaryService._generate_summary_text(
                 attendance.raw_content,
                 detected_urgency=urgency_level,
                 system_context=closure.get("system_context") or None,
+                linked_property_context=linked_property_context,
             )
             key_points = AISummaryService._extract_key_points(raw_content)
             # Intent: override from closure (sale/loss registered) when present
@@ -276,18 +297,24 @@ class AISummaryService:
         raw_content: str,
         detected_urgency: UrgencyLevel | None = None,
         system_context: str | None = None,
+        linked_property_context: str | None = None,
     ) -> str:
         """
         Generate summary text from raw content using Gemini API.
-        
+
         When system_context is provided (attendance closed with sale/loss in the system),
         the AI is instructed to state that the deal was finalized and which property,
         so the summary matches the real status even if the conversation text does not.
-        
+
+        When linked_property_context is provided (attendance has a property_id linked),
+        the AI must use that property's location and value in the summary and must NOT
+        say that location or budget were "not mentioned" — they are defined by the linked property.
+
         Args:
             raw_content: Raw content of the attendance
             detected_urgency: Detected urgency level to ensure consistency in summary
             system_context: Optional context that the attendance was concluded with sale/loss and property info
+            linked_property_context: Optional description of the property already linked to the attendance (address, city, rent/sale value)
         """
         gemini = AISummaryService._get_gemini_service()
         
@@ -321,6 +348,16 @@ class AISummaryService:
 {system_context}
 """
 
+        linked_property_block = ""
+        if linked_property_context and linked_property_context.strip():
+            linked_property_block = f"""
+IMPORTANTE - IMÓVEL JÁ VINCULADO AO ATENDIMENTO:
+Este atendimento já possui um imóvel vinculado no sistema. As informações abaixo são do imóvel vinculado (localização e valor já estão definidos).
+{linked_property_context}
+- USE essas informações no resumo: mencione a localização e o valor do imóvel quando relevantes.
+- NÃO diga que "localização preferencial não foi mencionada" ou que "orçamento não foi mencionado" — eles estão no imóvel vinculado acima.
+"""
+
         prompt = f"""Você é um assistente especializado em análise de atendimentos imobiliários.
 
 Analise o seguinte conteúdo de atendimento e gere um resumo profissional, conciso e útil em português brasileiro.
@@ -328,6 +365,7 @@ Analise o seguinte conteúdo de atendimento e gere um resumo profissional, conci
 DATA ATUAL: {current_date}
 {urgency_context}
 {system_context_block}
+{linked_property_block}
 REGRAS IMPORTANTES:
 - NÃO copie o conteúdo original palavra por palavra
 - Crie um resumo objetivo destacando os pontos principais
