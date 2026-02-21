@@ -760,6 +760,20 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
         return min(confidence, 1.0)
     
     @staticmethod
+    def _is_time_or_period_expression(text: str) -> bool:
+        """Return True if text looks like time/period (e.g. 'parte da tarde', 'de manhã'), not a city name."""
+        if not text or len(text) < 3:
+            return False
+        lower = text.strip().lower()
+        time_words = {
+            "parte", "tarde", "manhã", "manha", "noite", "madrugada",
+            "horário", "horario", "período", "periodo", "turno",
+            "dia", "hora", "horas", "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "sabado", "domingo",
+        }
+        words = set(lower.split())
+        return bool(words & time_words)
+
+    @staticmethod
     def _extract_city(raw_content: str) -> str | None:
         """Extract city name from raw content using AI when available, fallback to regex."""
         import re
@@ -768,11 +782,13 @@ Responda APENAS com uma palavra: POSITIVE, NEGATIVE, NEUTRAL ou MIXED"""
         gemini = AISummaryService._get_gemini_service()
         if gemini.is_configured():
             try:
-                prompt = f"""Analise o seguinte texto de atendimento imobiliário e extraia APENAS o nome da cidade mencionada.
+                prompt = f"""Analise o seguinte texto de atendimento imobiliário e extraia APENAS o nome da cidade mencionada (localização geográfica).
 
 IMPORTANTE:
-- Extraia APENAS o nome da cidade (ex: "Ourinhos", "São Paulo", "Rio de Janeiro")
+- Extraia APENAS o nome da cidade/localização geográfica (ex: "Ourinhos", "São Paulo", "Rio de Janeiro")
 - NÃO extraia frases como "concretizar a compra", "visualizada através", etc.
+- NUNCA extraia expressões de horário ou período: "parte da tarde", "parte da manhã", "de manhã", "à tarde", "à noite", "pela manhã", "turno da tarde", etc. — isso NÃO é cidade.
+- Se mencionar "visita na parte da tarde", NÃO retorne "parte da tarde"; retorne null para cidade nessa frase.
 - Se mencionar "casa em Ourinhos", extraia "Ourinhos"
 - Se mencionar "cidade de X", extraia "X"
 - Se não houver cidade mencionada, retorne null
@@ -785,7 +801,7 @@ Responda APENAS com o nome da cidade ou "null":"""
                 
                 result = gemini.chat(
                     message=prompt,
-                    system_prompt="Você é um especialista em extrair nomes de cidades de textos. Retorne APENAS o nome da cidade ou 'null'.",
+                    system_prompt="Você é um especialista em extrair nomes de cidades (localização geográfica) de textos. Nunca retorne horário ou período (ex: parte da tarde, de manhã). Retorne APENAS o nome da cidade ou 'null'.",
                 )
                 
                 answer = result.get("answer", "").strip()
@@ -796,6 +812,9 @@ Responda APENAS com o nome da cidade ou "null":"""
                 # Check if it's null or empty
                 if answer.lower() in ['null', 'none', 'não', 'nao', ''] or len(answer) < 3:
                     # Fall through to regex
+                    pass
+                elif AISummaryService._is_time_or_period_expression(answer):
+                    # Reject time-of-day expressions (e.g. "Parte da Tarde") mistaken as city
                     pass
                 else:
                     # Validate it's not a verb phrase
@@ -815,6 +834,7 @@ Responda APENAS com o nome da cidade ou "null":"""
         content_lower = raw_content.lower()
         
         # Common skip words that are not cities (expanded list)
+        # Include time/period words so "parte da tarde", "de manhã" are never extracted as city
         skip_words = {
             "casa", "apartamento", "imóvel", "terreno", "comprar", "compra", "alugar", "vender",
             "buscar", "procurar", "quer", "uma", "um", "breve", "geral", "qualquer",
@@ -832,7 +852,9 @@ Responda APENAS com o nome da cidade ou "null":"""
             "apenas", "após", "atual", "data", "dias", "dia",
             "horas", "hora", "às", "as", "no", "na", "em", "para",
             "visualizado", "visualizada", "visualizar", "visualização",
-            "instagram", "facebook", "site", "internet", "web"
+            "instagram", "facebook", "site", "internet", "web",
+            "parte", "tarde", "manhã", "manha", "noite", "madrugada",
+            "horário", "horario", "período", "periodo", "turno",
         }
         
         # Try uppercase patterns first (more reliable for city names)
@@ -872,7 +894,7 @@ Responda APENAS com o nome da cidade ou "null":"""
                                     action_verbs = {'concretizar', 'visualizar', 'indicar', 'demonstrar', 'solicitar', 
                                                    'agendar', 'reforçar', 'possuir', 'desejar', 'querer', 'precisar'}
                                     first_word_lower = words[0].lower()
-                                    if first_word_lower not in action_verbs:
+                                    if first_word_lower not in action_verbs and not AISummaryService._is_time_or_period_expression(city):
                                         return city
         
         # Also check for cities mentioned with lowercase after prepositions
@@ -903,7 +925,7 @@ Responda APENAS com o nome da cidade ou "null":"""
                             action_verbs = {'concretizar', 'visualizar', 'indicar', 'demonstrar', 'solicitar', 
                                            'agendar', 'reforçar', 'possuir', 'desejar', 'querer', 'precisar'}
                             first_word_lower = words[0].lower()
-                            if first_word_lower not in action_verbs:
+                            if first_word_lower not in action_verbs and not AISummaryService._is_time_or_period_expression(city):
                                 # Capitalize properly
                                 return city.title()
         

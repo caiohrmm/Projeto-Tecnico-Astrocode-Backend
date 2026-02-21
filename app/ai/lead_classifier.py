@@ -54,6 +54,20 @@ class LeadClassifierService:
             self.gemini = GeminiService()
         return self.gemini
 
+    @staticmethod
+    def _is_time_or_period_expression(text: str) -> bool:
+        """Return True if text looks like time/period (e.g. 'parte da tarde'), not a city name."""
+        if not text or len(text) < 3:
+            return False
+        lower = text.strip().lower()
+        time_words = {
+            "parte", "tarde", "manhã", "manha", "noite", "madrugada",
+            "horário", "horario", "período", "periodo", "turno",
+            "dia", "hora", "horas", "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "sabado", "domingo",
+        }
+        words = set(lower.split())
+        return bool(words & time_words)
+
     def classify_lead(
         self,
         name: str,
@@ -201,9 +215,10 @@ TIPOS DE IMÓVEL:
 
 IMPORTANTE - EXTRAÇÃO DE DADOS:
 - Se a mensagem mencionar orçamento/preço, extraia os valores em reais (R$) e retorne em "budget_min" e "budget_max"
-- Se mencionar localização/cidade, extraia o nome da cidade e retorne em "city_interest"
+- Se mencionar localização/cidade (nome de lugar), extraia o nome da cidade e retorne em "city_interest"
+- NUNCA use city_interest para horário ou período: "parte da tarde", "de manhã", "à noite", "turno da manhã" NÃO são cidades — city_interest é APENAS localização geográfica (nome de cidade/bairro/região).
 - Exemplos de orçamento: "500 mil" = 500000, "600.000" = 600000, "entre 500 e 600 mil" = budget_min: 500000, budget_max: 600000
-- Exemplos de cidade: "São Paulo", "Rio de Janeiro", "centro de São Paulo" = "São Paulo"
+- Exemplos de cidade: "São Paulo", "Rio de Janeiro", "centro de São Paulo" = "São Paulo". Se só mencionar "visita na parte da tarde", deixe city_interest como null.
 
 STATUS SUGERIDO (suggested_status):
 Baseado no lead_score, urgência e informações disponíveis, sugira o status inicial mais apropriado:
@@ -323,6 +338,9 @@ DADOS DO LEAD:
                 budget_min = data.get("budget_min")
                 budget_max = data.get("budget_max")
                 city_interest = data.get("city_interest")
+                # Reject time/period expressions mistaken as city (e.g. "Parte da Tarde")
+                if city_interest and self._is_time_or_period_expression(city_interest):
+                    city_interest = None
                 
                 # Convert budget to float if provided
                 if budget_min is not None:
