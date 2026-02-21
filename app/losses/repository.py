@@ -457,6 +457,7 @@ Seja específico e prático. Foque em ações que a equipe pode implementar imed
             LossReason.ECONOMIC_FACTORS: "Fatores econômicos",
             LossReason.PERSONAL_REASONS: "Motivos pessoais",
             LossReason.OTHER: "Outro motivo",
+            LossReason.SALE_DENIED_BY_MANAGER: "Venda negada pelo gestor",
         }
         return labels.get(reason, reason.value)
 

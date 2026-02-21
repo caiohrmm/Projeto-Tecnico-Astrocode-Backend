@@ -1,5 +1,6 @@
 """Repository for Sale database operations."""
 
+import logging
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -15,6 +16,8 @@ from app.properties.repository import PropertyRepository
 from app.sales.models import Sale, SaleStatus, SaleType
 from app.sales.schemas import SaleCreate, SaleStats, SaleUpdate
 from app.clients.timeline_models import ClientTimeline, TimelineEventType
+
+logger = logging.getLogger(__name__)
 
 
 class SaleRepository:
@@ -90,13 +93,12 @@ class SaleRepository:
         # This ensures the attendance cycle is properly closed when user confirms the sale
         from app.attendances.repository import AttendanceRepository
         from app.attendances.models import AttendanceStatus
-        import logging
-        
-        logger = logging.getLogger(__name__)
+
         attendance_repo = AttendanceRepository(self.db)
         active_attendance = attendance_repo.get_active_attendance_by_client(sale_data.client_id)
         
         if active_attendance:
+            db_sale.attendance_id = active_attendance.id  # Vincular para sincronizar em cancelamento
             # Append finalization message to conversation log (venda registrada)
             attendance_repo.append_finalization_message(
                 active_attendance,
@@ -316,6 +318,37 @@ class SaleRepository:
                 related_property_id=sale.property_id,
                 importance=4,
             )
+
+            # Registrar perda (gestor negou a venda) e sincronizar atendimento
+            from app.losses.repository import LossRepository
+            from app.losses.schemas import LossCreate
+            from app.losses.models import LossReason, LossStage
+            from app.attendances.repository import AttendanceRepository
+            from app.attendances.models import Attendance, AttendanceStatus
+
+            loss_repo = LossRepository(self.db)
+            loss_repo.create(LossCreate(
+                client_id=sale.client_id,
+                property_id=sale.property_id,
+                broker_id=sale.broker_id,
+                loss_reason=LossReason.SALE_DENIED_BY_MANAGER,
+                loss_stage=LossStage.CONTRACT,
+                detailed_reason=sale.notes or "Venda negada pelo gestor. Negociação não concluída.",
+            ))
+
+            if sale.attendance_id:
+                attendance = self.db.get(Attendance, sale.attendance_id)
+                if attendance and attendance.status == AttendanceStatus.COMPLETED:
+                    attendance_repo = AttendanceRepository(self.db)
+                    attendance_repo.append_finalization_message(
+                        attendance,
+                        "Venda cancelada pelo gestor. Ciclo encerrado como perdido.",
+                    )
+                    attendance.status = AttendanceStatus.LOST
+                    self.db.flush()
+                    logger.info(
+                        f"Updated attendance {attendance.id} to LOST after sale {sale.id} was cancelled"
+                    )
 
     def _update_client_status(self, client_id: uuid.UUID, status: ClientStatus) -> None:
         """Update client status."""

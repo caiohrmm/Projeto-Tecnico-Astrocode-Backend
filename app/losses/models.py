@@ -46,6 +46,7 @@ class LossReason(str, enum.Enum):
 
     # Other
     OTHER = "OTHER"  # Outro motivo
+    SALE_DENIED_BY_MANAGER = "SALE_DENIED_BY_MANAGER"  # Venda negada pelo gestor (cancelamento)
 
 
 class LossStage(str, enum.Enum):

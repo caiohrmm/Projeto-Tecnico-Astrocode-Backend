@@ -119,6 +119,13 @@ class Sale(Base):
         nullable=True,
         index=True,
     )
+    attendance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("attendances.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Atendimento que foi encerrado com esta venda (para sincronizar em cancelamento)",
+    )
 
     # Sale Details
     sale_type: Mapped[SaleType] = mapped_column(
