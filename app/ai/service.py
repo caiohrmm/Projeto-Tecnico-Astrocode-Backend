@@ -614,10 +614,13 @@ RESUMO:"""
             if number > 6:
                 return UrgencyLevel.LOW
         
-        # Default to medium if there's any indication of interest (conservative approach)
+        # Do NOT default to MEDIUM when only generic interest words appear (e.g. "tem interesse", "quero").
+        # Return None so the client keeps the current urgency and we only update when there is a clear
+        # timeline or urgency signal. This allows urgency to move up/down as the active cycle progresses.
         if any(word in content_lower for word in ["interesse", "gostaria", "quero", "preciso", "buscar", "procurar", "deseja"]):
-            return UrgencyLevel.MEDIUM
+            return None
         
+        # No clear signal: low urgency (no timeline = not urgent)
         return UrgencyLevel.LOW
 
     @staticmethod

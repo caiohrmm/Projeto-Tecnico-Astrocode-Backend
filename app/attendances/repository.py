@@ -1379,6 +1379,24 @@ class AttendanceRepository:
                 old_values[field_name] = json_serializable_value(current_value)
                 update_data[field_name] = suggestion.suggested_value
         
+        # Urgency: always sync from the active cycle's latest AI summary so it accompanies the negotiation.
+        # This ensures the client's urgency in "visão geral" reflects the current cycle (avança/regride).
+        if ai_summary.urgency_level_detected is not None:
+            from app.clients.models import UrgencyLevel
+            try:
+                detected_urgency = (
+                    ai_summary.urgency_level_detected
+                    if isinstance(ai_summary.urgency_level_detected, UrgencyLevel)
+                    else UrgencyLevel(ai_summary.urgency_level_detected)
+                )
+            except (ValueError, TypeError):
+                detected_urgency = None
+            if detected_urgency is not None:
+                current_urgency = getattr(client, "current_urgency_level", None)
+                if current_urgency != detected_urgency:
+                    old_values["current_urgency_level"] = json_serializable_value(current_urgency)
+                update_data["current_urgency_level"] = detected_urgency
+        
         # ⚠️ Status is now AI-controlled through State Derivation Service suggestions
         # The legacy _determine_client_status_from_ai is no longer used for status updates
         # Status updates come from StructuredSignal.client_status in the suggestions
