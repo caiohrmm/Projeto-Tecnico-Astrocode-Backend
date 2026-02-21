@@ -22,6 +22,7 @@ A **API está totalmente documentada** no Swagger: todos os endpoints possuem de
 - [1. Visão geral](#1-visão-geral)
 - [2. Arquitetura e tecnologias](#2-arquitetura-e-tecnologias)
 - [3. Estrutura do projeto e instalação](#3-estrutura-do-projeto-e-instalação)
+  - [Variáveis de ambiente (.env)](#variáveis-de-ambiente-env)
 - [4. Modelos e banco de dados](#4-modelos-e-banco-de-dados)
 - [5. Fluxo central: cliente e ciclos de atendimento](#5-fluxo-central-cliente-e-ciclos-de-atendimento)
 - [6. Visitas, vendas e perdas (vinculadas ao cliente)](#6-visitas-vendas-e-perdas-vinculadas-ao-cliente)
@@ -98,16 +99,51 @@ alembic/                    # Migrações
    python -m venv .venv && source .venv/bin/activate   # ou .venv\Scripts\activate no Windows
    pip install -e .
    ```
-3. **Variáveis de ambiente** (`.env` na raiz):
-   - `DATABASE_URL` – connection string PostgreSQL (ex.: Neon).
-   - `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_EXPIRATION_HOURS`.
-   - `GEMINI_API_KEY`.
-   - Opcional: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `FRONTEND_URL`.
+3. **Variáveis de ambiente:** copie `.env.example` para `.env` na raiz do projeto e preencha os valores. Cada variável está explicada no próprio `.env.example`. Veja também a seção [Variáveis de ambiente (.env)](#variáveis-de-ambiente-env) abaixo.
 4. **Banco:** `alembic upgrade head`
 5. **Primeiro usuário (gestor):** `python scripts/create_manager.py --email ... --password ... --name "Admin"`
 6. **Rodar:** `uvicorn app.main:app --reload --port 8000`  
    - **Local:** API → http://localhost:8000 · Docs → http://localhost:8000/docs  
    - **Produção (Render):** API → https://projeto-tecnico-astrocode-backend.onrender.com · Docs → https://projeto-tecnico-astrocode-backend.onrender.com/docs  
+
+### Variáveis de ambiente (.env)
+
+O arquivo **`.env.example`** na raiz do projeto lista todas as variáveis usadas pela API, com comentários explicando cada uma. Copie-o para `.env` e preencha com seus valores (nunca commite o `.env`).
+
+| Variável | Obrigatória | Descrição |
+|----------|-------------|-----------|
+| **Aplicação** | | |
+| `APP_NAME` | Não | Nome exibido na API (ex.: Swagger). |
+| `ENVIRONMENT` | Não | `development`, `staging` ou `production`. |
+| `DEBUG` | Não | Modo debug (evite `true` em produção). |
+| **Servidor** | | |
+| `HOST` | Não | Endereço de escuta (ex.: `0.0.0.0`). |
+| `PORT` | Não | Porta HTTP (ex.: `8000`). |
+| **Banco** | | |
+| `DATABASE_URL` | **Sim** | Connection string PostgreSQL (Neon, Render, local). |
+| **JWT** | | |
+| `JWT_SECRET_KEY` | **Sim** | Chave secreta para tokens (use valor forte em produção). |
+| `JWT_ALGORITHM` | Não | Algoritmo JWT (padrão: `HS256`). |
+| `JWT_EXPIRATION_HOURS` | Não | Validade do token em horas (ex.: `24`). |
+| **Google OAuth** | | |
+| `GOOGLE_CLIENT_ID` | Para login Google | Client ID do projeto no Google Cloud. |
+| `GOOGLE_CLIENT_SECRET` | Para login Google | Client Secret OAuth 2.0. |
+| `GOOGLE_REDIRECT_URI` | Para login Google | URL de callback (ex.: `https://seu-backend.onrender.com/auth/google/callback`). |
+| **Google Maps** | | |
+| `GOOGLE_API_KEY` | Para geocoding | Chave da API Google Maps (Geocoding). |
+| **Gemini (IA)** | | |
+| `GEMINI_API_KEY` | **Sim** (para IA) | Chave da API Google Gemini. |
+| **Cloudinary** | | |
+| `CLOUDINARY_CLOUD_NAME` | Para fotos de imóveis | Nome do cloud no dashboard. |
+| `CLOUDINARY_API_KEY` | Para fotos de imóveis | API Key. |
+| `CLOUDINARY_API_SECRET` | Para fotos de imóveis | API Secret. |
+| **Frontend / CORS** | | |
+| `FRONTEND_URL` | Para OAuth | URL do frontend (redirect após login Google). |
+| `CORS_ORIGINS` | Recomendado | Origens permitidas (vírgula); inclua a URL do frontend. |
+| **SMTP** | | |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, etc. | Para "Esqueci minha senha" | Se não configurado, o link de redefinição é apenas logado no console. |
+
+Para detalhes e exemplos de valor, consulte o **`.env.example`**.
 
 ---
 
