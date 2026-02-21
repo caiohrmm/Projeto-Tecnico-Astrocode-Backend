@@ -557,8 +557,8 @@ RESUMO:"""
         if any(p in content_lower for p in sale_loss_patterns):
             return UrgencyLevel.LOW
 
-        # Immediate urgency indicators
-        if any(word in content_lower for word in ["imediato", "urgente", "hoje", "agora", "rápido", "já", "imediatamente", "asap"]):
+        # Immediate urgency indicators (incl. "urgente", "com urgência")
+        if any(word in content_lower for word in ["imediato", "urgente", "urgência", "hoje", "agora", "rápido", "já", "imediatamente", "asap"]):
             return UrgencyLevel.IMMEDIATE
         
         # High urgency: next week, few days, soon (avoid "próximo" alone - it matches "próximo mês" → medium)
@@ -885,9 +885,9 @@ Responda APENAS com o nome da cidade ou "null":"""
                     city = match.strip()
                     # Skip if it's a common word or too short
                     if city.lower() not in skip_words and len(city) > 2:
-                        # City names are usually 1-4 words
+                        # City names are usually 1-5 words (e.g. Santa Cruz do Rio Pardo)
                         words = city.split()
-                        if len(words) <= 4:
+                        if len(words) <= 5:
                             # Check if any word is in skip list
                             if not any(word.lower() in skip_words for word in words):
                                 # Additional validation: city should not be a verb phrase
@@ -903,11 +903,13 @@ Responda APENAS com o nome da cidade ou "null":"""
         # Also check for cities mentioned with lowercase after prepositions
         # This catches cases like "em ourinhos" (lowercase)
         lowercase_patterns = [
-            # "na cidade de ourinhos" - specific pattern for lowercase (highest priority)
+            # "na cidade de ourinhos" / "cidade de santa cruz do rio pardo" - highest priority
             r"na\s+cidade\s+(?:de|do|da)?\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
-            # "casa em ourinhos", "apartamento em ourinhos" - specific pattern for property + city
-            r"(?:casa|apartamento|terreno|imóvel)\s+(?:em|de|na|no)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
             r"cidade\s+(?:de|do|da)?\s+([a-zà-ú]+(?:\s+[a-zà-ú]+)*)",
+            # "casa para morar em santa cruz do rio pardo", "morar em ourinhos"
+            r"morar\s+em\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
+            # "casa em ourinhos", "apartamento em ourinhos"
+            r"(?:casa|apartamento|terreno|imóvel)\s+(?:em|de|na|no)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
             r"(?:^|\.|,|;|:|\s)(?:em|na|no|para)\s+([a-zà-ú]+(?:\s+(?:do|da|de|dos|das)?\s*[a-zà-ú]+)*)",
         ]
         
@@ -916,13 +918,13 @@ Responda APENAS com o nome da cidade ou "null":"""
             if matches:
                 for match in matches:
                     city = match.strip()
-                    # Skip if it's a common word, too short, or contains numbers
+                    words = city.split()
+                    # Skip if it's a common word, too short, contains numbers, or too many words (max 5 for cities)
                     if (city.lower() not in skip_words and 
                         len(city) > 3 and 
                         not re.search(r'\d', city) and
-                        len(city.split()) <= 3):
+                        len(words) <= 5):
                         # Check if any word is in skip list
-                        words = city.split()
                         if not any(word.lower() in skip_words for word in words):
                             # Additional validation: skip verb phrases
                             action_verbs = {'concretizar', 'visualizar', 'indicar', 'demonstrar', 'solicitar', 
