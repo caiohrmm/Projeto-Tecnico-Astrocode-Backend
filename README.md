@@ -29,6 +29,7 @@ A **API está totalmente documentada** no Swagger: todos os endpoints possuem de
 - [5. Fluxo central: cliente e ciclos de atendimento](#5-fluxo-central-cliente-e-ciclos-de-atendimento)
 - [6. Visitas, vendas e perdas (vinculadas ao cliente)](#6-visitas-vendas-e-perdas-vinculadas-ao-cliente)
 - [7. Funcionalidades da IA](#7-funcionalidades-da-ia)
+  - [Aviso sobre tempo de resposta](#aviso-sobre-tempo-de-resposta)
 - [8. API (endpoints)](#8-api-endpoints)
 - [9. Segurança e autenticação](#9-segurança-e-autenticação)
 - [10. Destaques técnicos e proteções](#10-destaques-técnicos-e-proteções)
@@ -225,6 +226,10 @@ alembic upgrade head
 ## 7. Funcionalidades da IA
 
 O sistema usa **Google Gemini** para análise de texto, resumos e derivação de estado. Principais pontos:
+
+### Aviso sobre tempo de resposta
+
+Alguns **botões ou ações** que disparam processamento pela IA (por exemplo: adicionar conversa, gerar resumo, chat com a IA, atualização de perfil do cliente) podem **demorar alguns segundos** para concluir. O projeto utiliza um **plano de IA mais econômico e menos premium**, com requisições mais lentas. É normal aguardar um pouco após clicar; evite clicar novamente para não duplicar a ação.
 
 ### 7.1. Atualização automática de perfil do cliente
 
