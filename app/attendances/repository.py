@@ -1412,7 +1412,6 @@ class AttendanceRepository:
         # Status: always sync from the active cycle's latest AI summary so it accompanies the negotiation.
         # So the client is not stuck at "Novo Lead"; status advances/regresses with the cycle (CONTACTED, QUALIFIED, NEGOTIATING, etc.)
         # and only becomes WON/LOST when the cycle is closed.
-        from app.clients.state_derivation_service import ClientStateDerivationService
         suggested_status = ClientStateDerivationService._detect_client_status_from_signal(
             ai_summary=ai_summary,
             attendance=attendance,
