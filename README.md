@@ -124,7 +124,7 @@ Para testar o sistema com perfil de **administrador** (gestor) e controlar o ace
 | Campo    | Valor              |
 |----------|--------------------|
 | **E-mail** | `gestor@example.com` |
-| **Senha**  | `123456`            |
+| **Senha**  | `senha123456`        |
 
 Com esse usuário você pode registrar novos usuários, atribuir roles (atendente, gestor) e gerenciar permissões. Em produção, altere a senha ou use o script `scripts/create_manager.py` para criar um gestor com credenciais seguras.
 
@@ -224,8 +224,8 @@ Um jeito de enxergar o sistema é acompanhar um caso do início ao fim:
 5. **Negociação: ir adicionando conversas**  
    À medida que a negociação avança, você **adiciona conversas** ao mesmo atendimento (novas mensagens, acordos, dúvidas). A cada adição a IA reprocessa, atualiza o resumo, o perfil e as recomendações. Não é preciso criar outro atendimento; tudo fica no **mesmo ciclo ativo**.
 
-6. **Marcar visita**  
-   Quando o cliente quiser conhecer um imóvel, você agenda uma **visita** (manual ou a partir da detecção de intenção da IA). A visita fica vinculada ao atendimento e, se quiser, ao imóvel.
+6. **Marcar visita (manual ou detectada pela IA)**  
+   Quando o cliente quiser conhecer um imóvel, você pode **agendar a visita manualmente** ou deixar a IA identificar a intenção. Por exemplo, ao adicionar uma conversa como *"O cliente deseja marcar uma visita para a casa daqui 3 dias na parte da tarde"*, a IA detecta automaticamente a **intenção de agendar visita**, extrai data/hora (ex.: daqui 3 dias, parte da tarde) e, quando aplicável, o imóvel mencionado. O sistema então **sugere ou pede para criar a visita** com esses dados já preenchidos — você só confirma ou ajusta. A visita fica vinculada ao atendimento e, se houver, ao imóvel. Assim você não precisa interpretar o texto à mão nem abrir o formulário de visitas do zero.
 
 7. **Vínculo do imóvel ao atendimento**  
    Se o cliente se interessar por um imóvel específico, use **Alterar imóvel** no atendimento para vincular esse imóvel ao ciclo. Só assim é possível **Registrar venda** ou **Registrar perda** para esse ciclo.
