@@ -1354,15 +1354,25 @@ class AttendanceRepository:
                 suggestions.append(direct_suggestion)
         
         if not suggestions:
-            # No suggestions to apply, but still update last_contact_at and track derivation
+            # No suggestions to apply, but still update last_contact_at and track derivation.
+            # Also sync city of interest from key_points when present (keeps profile aligned with analysis).
             update_data = {
                 "last_contact_at": datetime.utcnow(),
                 "last_state_derivation_at": datetime.utcnow(),
                 "state_derivation_count": (client.state_derivation_count or 0) + 1,
                 "state_derived_from_attendances_count": signals_count,
             }
+            if ai_summary.key_points and isinstance(ai_summary.key_points, dict):
+                city_from_summary = ai_summary.key_points.get("city")
+                if city_from_summary and isinstance(city_from_summary, str) and city_from_summary.strip():
+                    update_data["current_city_interest"] = city_from_summary.strip()
             client_update = ClientUpdate(**update_data)
-            client_repo.update(client, client_update, allow_ai_lead_score_update=False)
+            client_repo.update(
+                client,
+                client_update,
+                allow_ai_lead_score_update=False,
+                allow_ai_updates=True,  # allow city from key_points when no suggestions
+            )
             return
         
         # Helper function to convert values to JSON-serializable types
@@ -1390,6 +1400,17 @@ class AttendanceRepository:
             if field_name == "current_lead_score" or current_value != suggestion.suggested_value:
                 old_values[field_name] = json_serializable_value(current_value)
                 update_data[field_name] = suggestion.suggested_value
+        
+        # FALLBACK: Sync city of interest from AI summary key_points so it always matches the analysis.
+        # The analysis and objective already mention the city; the client profile must reflect it.
+        if ai_summary.key_points and isinstance(ai_summary.key_points, dict):
+            city_from_summary = ai_summary.key_points.get("city")
+            if city_from_summary and isinstance(city_from_summary, str) and city_from_summary.strip():
+                current_city = getattr(client, "current_city_interest", None)
+                new_city = city_from_summary.strip()
+                if current_city is None or current_city.strip().lower() != new_city.lower():
+                    old_values["current_city_interest"] = json_serializable_value(current_city)
+                    update_data["current_city_interest"] = new_city
         
         # Urgency: always sync from the active cycle's latest AI summary so it accompanies the negotiation.
         # This ensures the client's urgency in "visão geral" reflects the current cycle (avança/regride).
