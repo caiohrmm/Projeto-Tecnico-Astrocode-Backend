@@ -31,6 +31,7 @@ A **API está totalmente documentada** no Swagger: todos os endpoints possuem de
 - [5. Fluxo central: cliente e ciclos de atendimento](#5-fluxo-central-cliente-e-ciclos-de-atendimento)
   - [Fluxo em prática: exemplo do dia a dia](#fluxo-em-prática-exemplo-do-dia-a-dia)
 - [6. Visitas, vendas e perdas (vinculadas ao cliente)](#6-visitas-vendas-e-perdas-vinculadas-ao-cliente)
+  - [Imóveis: score de visibilidade e ordenação](#imóveis-score-de-visibilidade-e-ordenação)
 - [7. Funcionalidades da IA](#7-funcionalidades-da-ia)
   - [Aviso sobre tempo de resposta](#aviso-sobre-tempo-de-resposta)
 - [8. API (endpoints)](#8-api-endpoints)
@@ -76,7 +77,7 @@ Este projeto foi pensado para **uma imobiliária específica**, como sistema **s
 
 ### Arquitetura em camadas
 
-O **frontend** (Vue 3 + Vite + Vuetify) consome a API via **HTTP/REST**. O **backend** (FastAPI) centraliza a lógica e se conecta a quatro integrações: **PostgreSQL** (banco de dados, ex.: Neon), **Google Gemini** (IA para resumos, chat e jornada), **Cloudinary** (upload de imagens de imóveis) e **OAuth Google** (login social). Ou seja: o cliente acessa o frontend, que chama o backend; o backend persiste dados no PostgreSQL, usa a IA (Gemini) para análises e chat, armazena fotos no Cloudinary e delega a autenticação social ao Google.
+O **frontend** (Vue 3 + Vite + Vuetify) consome a API via **HTTP/REST**. O **backend** (FastAPI) centraliza a lógica e se conecta a: **PostgreSQL** (banco de dados, ex.: Neon), **Google Gemini** (IA para resumos, chat e jornada), **Cloudinary** (upload de imagens de imóveis), **OAuth Google** (login social), **ViaCEP** (consulta de CEP para preenchimento de endereço em imóveis) e **Google Maps / Geocoding** (opcional, para geolocalização por endereço). O cliente acessa o frontend, que chama o backend; o backend persiste dados no PostgreSQL, usa a IA (Gemini) para análises e chat, armazena fotos no Cloudinary e delega autenticação social ao Google.
 
 ---
 
@@ -178,7 +179,7 @@ Para detalhes e exemplos de valor, consulte o **`.env.example`**.
 - **Visit** – Visita agendada: vinculada a **attendance** e opcionalmente a **property**; status (AGENDADA, REALIZADA, CANCELADA, etc.).
 - **Sale** – Venda: vinculada a cliente, imóvel, atendimento (fecha o ciclo ACTIVE e aplica lead score de fechamento no cliente).
 - **ClientLoss** – Perda: vinculada a cliente e atendimento (fecha o ciclo ACTIVE e aplica lead score).
-- **Property** – Imóvel: dados cadastrais, fotos (Cloudinary), preços.
+- **Property** – Imóvel: dados cadastrais, fotos (Cloudinary), preços. Possui **visibility_score** (0–100) calculado automaticamente conforme completude do anúncio (título, descrição, localização, características, preço, status publicado, agente); a listagem ordena por esse score (maior primeiro).
 - **AISummary** – Por atendimento: resumo, intenção, sentimento, urgência, key_points (incl. `property_purchased`, `property_lost` em fechamento), propriedades recomendadas.
 
 ### Migrações
@@ -203,7 +204,7 @@ alembic upgrade head
 1. **Criar cliente** → valores iniciais (ex.: status NEW_LEAD, lead_score 30, urgência MEDIUM).
 2. **Criar atendimento** (ou adicionar conversa ao ACTIVE) → IA gera resumo, intenção, urgência, próximos passos; atualiza perfil do cliente com base só no ACTIVE; pode detectar intenção de visita ou menção a imóvel.
 3. **Vincular imóvel** → único campo editável do atendimento (PUT com `property_id`).
-4. **Fechar ciclo** → por **Registrar venda**, **Registrar perda** ou **Marcar como concluído** (status COMPLETED). Venda/perda aplicam lead score de fechamento no cliente e preenchem key_points (property_purchased / property_lost) no resumo da IA.
+4. **Fechar ciclo** → por **Registrar venda**, **Registrar perda** ou **Marcar como concluído** (status COMPLETED). Venda/perda aplicam lead score de fechamento no cliente, preenchem key_points (property_purchased / property_lost) no resumo da IA e, quando o cliente fica sem atendimento ACTIVE, a **urgência do cliente** é definida como **baixa** (LOW).
 
 ### Fluxo em prática: exemplo do dia a dia
 
@@ -216,7 +217,7 @@ Um jeito de enxergar o sistema é acompanhar um caso do início ao fim:
    Exemplo: o cliente liga ou manda mensagem querendo **uma casa em Santa Cruz do Rio Pardo**, com ou sem orçamento definido.
 
 3. **Criação do atendimento**  
-   Você cria um **atendimento** para esse cliente e coloca na conversa o que ele pediu (ex.: *"Cliente ligou pela manhã procurando com urgência uma casa para morar em Santa Cruz do Rio Pardo. Orçamento de R$ 1.000.000"*). Ao salvar, a IA analisa o texto, extrai cidade, tipo de imóvel, orçamento e urgência, atualiza o **perfil do cliente** (cidade de interesse, orçamento, etc.) e gera o **resumo** e os **próximos passos**.
+   Você cria um **atendimento** para esse cliente e coloca na conversa o que ele pediu (ex.: *"Cliente ligou pela manhã procurando com urgência uma casa para morar em Santa Cruz do Rio Pardo. Orçamento de R$ 1.000.000"*). Opcionalmente já **vincula um imóvel** na própria tela de criação; se vincular, a IA usa a localização e o valor desse imóvel no resumo (não indica que "não foram mencionados"). Ao salvar, a IA analisa o texto, extrai cidade, tipo de imóvel, orçamento e urgência, atualiza o **perfil do cliente** (cidade de interesse, orçamento, etc.) e gera o **resumo** e os **próximos passos**.
 
 4. **Recomendações no atendimento**  
    No próprio atendimento a IA **recomenda imóveis** do cadastro que batem com o perfil — no exemplo, casas em Santa Cruz do Rio Pardo, dentro (ou próximas) do orçamento informado. Você pode usar essa lista para apresentar opções ao cliente.
@@ -228,7 +229,7 @@ Um jeito de enxergar o sistema é acompanhar um caso do início ao fim:
    Quando o cliente quiser conhecer um imóvel, você pode **agendar a visita manualmente** ou deixar a IA identificar a intenção. Por exemplo, ao adicionar uma conversa como *"O cliente deseja marcar uma visita para a casa daqui 3 dias na parte da tarde"*, a IA detecta automaticamente a **intenção de agendar visita**, extrai data/hora (ex.: daqui 3 dias, parte da tarde) e, quando aplicável, o imóvel mencionado. O sistema então **sugere ou pede para criar a visita** com esses dados já preenchidos — você só confirma ou ajusta. A visita fica vinculada ao atendimento e, se houver, ao imóvel. Assim você não precisa interpretar o texto à mão nem abrir o formulário de visitas do zero.
 
 7. **Vínculo do imóvel ao atendimento**  
-   Se o cliente se interessar por um imóvel específico, use **Alterar imóvel** no atendimento para vincular esse imóvel ao ciclo. Só assim é possível **Registrar venda** ou **Registrar perda** para esse ciclo.
+   Se o cliente se interessar por um imóvel específico, vincule-o ao ciclo: **na criação do atendimento** ou depois com **Alterar imóvel** na página de detalhes. Só com um imóvel vinculado é possível **Registrar venda** ou **Registrar perda** para esse ciclo (os botões ficam habilitados e a API aceita o registro).
 
 8. **Fechar a negociação**  
    No detalhe do atendimento você usa:
@@ -248,14 +249,20 @@ Resumindo: **cadastro → atendimento com a demanda (ex.: casa em Santa Cruz do 
 ### Vendas
 
 - **Registrar venda** associa cliente, imóvel, valor, corretor etc. O backend **fecha o atendimento ACTIVE** do cliente (status COMPLETED), aplica o **lead score de fechamento** no cliente (ex.: 100) e atualiza o resumo da IA com **key_points.property_purchased** (descrição do imóvel). Assim a IA e o frontend sabem qual imóvel foi comprado.
+- **Requisito:** o atendimento ativo do cliente deve ter um **imóvel vinculado** (`property_id`); caso contrário a API retorna 400 e o frontend mantém o botão desabilitado até o vínculo ser feito (botão "Alterar imóvel").
 
 ### Perdas
 
 - **Registrar perda** associa cliente, motivo, feedback etc. O backend **fecha o atendimento ACTIVE** (status LOST), aplica o lead score de fechamento e atualiza o resumo da IA com **key_points.property_lost** quando houver imóvel vinculado ao ciclo.
+- **Requisito:** o atendimento ativo do cliente deve ter um **imóvel vinculado** (`property_id`); caso contrário a API retorna 400 e o frontend mantém o botão desabilitado.
 
 ### Timeline do cliente
 
 - Eventos automáticos: criação de cliente, atendimentos (criado/concluído), visitas, imóvel selecionado/confirmado, vendas, perdas. Tudo vinculado ao **cliente** para histórico e contexto da IA.
+
+### Imóveis: score de visibilidade e ordenação
+
+- Cada imóvel possui um **visibility_score** (0–100) calculado automaticamente na criação e na atualização. O score considera: informações básicas (título, descrição, código, imagem), localização (cidade, bairro, endereço, CEP), características (área, quartos, banheiros, vagas), financeiro (preço de venda ou aluguel; condomínio/IPTU são bônus opcional) e comercial (status publicado, agente atribuído). A listagem de imóveis ordena por **visibility_score** decrescente (maior primeiro), depois por data de criação. Implementação: `app/properties/visibility_score_service.py`.
 
 ---
 
@@ -304,6 +311,7 @@ Alguns **botões ou ações** que disparam processamento pela IA (por exemplo: a
 - **Calcula score de confiança** da análise
 - **Sugere Lead Score** atualizado baseado na conversa
 - **Recomenda propriedades** que combinam com o perfil do cliente
+- **Imóvel já vinculado:** quando o atendimento possui um imóvel vinculado (`property_id`) na criação ou após "Alterar imóvel", a IA recebe o contexto desse imóvel (endereço, cidade, valor de venda/aluguel) ao gerar o resumo. Assim o resumo não indica que "localização ou orçamento não foram mencionados" — eles vêm do imóvel vinculado.
 
 **Implementação:** `app/ai/service.py` – `AISummaryService`. Inclui intenções **SALE_COMPLETED** e **LOSS_REGISTERED** quando a conversa indica fechamento.
 
@@ -560,9 +568,9 @@ As funcionalidades por área (clientes, atendimentos, imóveis, visitas, vendas,
 
 ### Controle de Acesso (RBAC)
 
-- **Atendente:** Acesso básico (clientes, atendimentos)
-- **Corretor:** Acesso intermediário (clientes, atendimentos, vendas)
-- **Gestor:** Acesso completo (incluindo gerenciamento de usuários)
+- **Atendente:** Clientes, atendimentos, visitas, imóveis (listar, criar, editar, upload de imagem). **Não** pode excluir imóveis; **não** acessa Dashboard, Vendas (página), Análise de Perdas nem Usuários.
+- **Corretor:** Tudo que o atendente tem, mais **exclusão de imóveis** e upload de imagem principal. Acesso às páginas de Vendas e Análise de Perdas no frontend (menu visível).
+- **Gestor:** Acesso completo: Dashboard, Usuários (criar usuários, atribuir roles), Vendas, Análise de Perdas, além de todas as ações de atendente e corretor.
 
 ### Segurança de Dados
 
