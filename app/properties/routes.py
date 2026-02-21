@@ -511,14 +511,13 @@ Envia a imagem principal do imóvel para o Cloudinary e atualiza `main_image_url
 
 **Armazenamento:** pasta `properties/{property_id}/main_image` no Cloudinary.  
 **Formatos:** JPEG, PNG ou WebP (validação e tamanho máx. definidos no serviço Cloudinary).  
-**Permissão:** apenas **corretor** ou **gestor**.
+**Permissão:** qualquer usuário autenticado (atendente, corretor, gestor).
 
 Requer autenticação.
     """.strip(),
     responses={
         200: {"description": "Imóvel atualizado com nova URL da imagem"},
         401: {"description": "Não autenticado"},
-        403: {"description": "Sem permissão (requer corretor ou gestor)"},
         404: {"description": "Imóvel não encontrado"},
         500: {"description": "Falha no upload da imagem"},
     },
@@ -527,7 +526,7 @@ def upload_property_main_image(
     property_id: uuid.UUID,
     file: UploadFile = File(..., description="Arquivo da imagem (JPEG, PNG ou WebP)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_agent_or_manager),
+    current_user: User = Depends(get_current_active_user),
 ) -> PropertyResponse:
     # Get property
     property_repo = PropertyRepository(db)
