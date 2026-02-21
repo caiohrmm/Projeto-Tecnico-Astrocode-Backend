@@ -148,8 +148,11 @@ class AISummaryService:
                     parts = []
                     if linked_prop.city:
                         parts.append(f"Cidade: {linked_prop.city}")
-                    if linked_prop.address:
-                        parts.append(f"Endereço: {linked_prop.address}")
+                    if linked_prop.street:
+                        endereco = linked_prop.street
+                        if linked_prop.number:
+                            endereco += f", {linked_prop.number}"
+                        parts.append(f"Endereço: {endereco}")
                     if linked_prop.neighborhood:
                         parts.append(f"Bairro: {linked_prop.neighborhood}")
                     if linked_prop.rent_price is not None and float(linked_prop.rent_price) > 0:
