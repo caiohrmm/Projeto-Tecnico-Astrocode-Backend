@@ -63,6 +63,11 @@ class LossRepository:
         active_attendance = attendance_repo.get_active_attendance_by_client(loss_data.client_id)
         
         if active_attendance:
+            # Append finalization message to conversation log (perda registrada)
+            attendance_repo.append_finalization_message(
+                active_attendance,
+                "Perda registrada. Ciclo encerrado como perdido.",
+            )
             # Close the active attendance cycle
             active_attendance.status = AttendanceStatus.LOST
             self.db.flush()

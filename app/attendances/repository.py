@@ -105,6 +105,18 @@ class AttendanceRepository:
             return most_recent
         
         return active_attendances[0]
+
+    def append_finalization_message(self, attendance: Attendance, message: str) -> None:
+        """
+        Append a system-generated finalization message to the attendance's raw_content.
+        Used when a sale or loss is registered so the conversation log reflects the closure.
+        Uses the same separator and timestamp format as user-added conversation.
+        """
+        separator = "\n\n---\n\n"
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        existing = attendance.raw_content or ""
+        attendance.raw_content = f"{existing}{separator}[{timestamp}] {message}"
+        self.db.flush()
     
     def _close_active_attendance(
         self,

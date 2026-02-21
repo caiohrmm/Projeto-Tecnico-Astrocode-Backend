@@ -97,6 +97,11 @@ class SaleRepository:
         active_attendance = attendance_repo.get_active_attendance_by_client(sale_data.client_id)
         
         if active_attendance:
+            # Append finalization message to conversation log (venda registrada)
+            attendance_repo.append_finalization_message(
+                active_attendance,
+                "Venda registrada. Ciclo encerrado como concluído (venda/aluguel).",
+            )
             # Close the active attendance cycle
             active_attendance.status = AttendanceStatus.COMPLETED
             self.db.flush()
