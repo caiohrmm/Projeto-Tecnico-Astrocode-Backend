@@ -9,7 +9,7 @@ from typing import List
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.clients.models import Client, ClientStatus
+from app.clients.models import Client, ClientStatus, UrgencyLevel
 from app.clients.repository import ClientRepository
 from app.properties.models import Property, PropertyStatus
 from app.properties.repository import PropertyRepository
@@ -115,6 +115,13 @@ class SaleRepository:
                 attendance_repo.apply_closure_lead_score_to_client(active_attendance.id)
             except Exception as e:
                 logger.warning(f"Could not regenerate AI summary after sale: {e}")
+
+        # Cliente sem atendimento ACTIVE → urgência baixa (ciclo encerrado com ganho)
+        client_repo = ClientRepository(self.db)
+        client = client_repo.get_by_id(sale_data.client_id)
+        if client:
+            client.current_urgency_level = UrgencyLevel.LOW
+            self.db.flush()
 
         # Add timeline event
         self._add_timeline_event(
