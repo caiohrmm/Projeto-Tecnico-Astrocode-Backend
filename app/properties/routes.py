@@ -423,6 +423,7 @@ Requer autenticação.
         200: {"description": "Imóvel atualizado"},
         400: {"description": "Código já existe ou agent_id não é corretor"},
         401: {"description": "Não autenticado"},
+        403: {"description": "Imóvel vendido ou alugado não pode ser editado"},
         404: {"description": "Imóvel ou agente não encontrado"},
         422: {"description": "Dados inválidos"},
     },
@@ -443,6 +444,13 @@ def update_property(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Property with ID {property_id} not found",
+        )
+
+    # Imóvel vendido ou alugado não pode mais ser alterado (integridade com vendas registradas)
+    if property.status in (PropertyStatus.SOLD, PropertyStatus.RENTED):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Imóvel vendido ou alugado não pode ser editado. O status está vinculado a uma venda/aluguel concluído.",
         )
 
     # Check if code is being updated and if it already exists
