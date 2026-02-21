@@ -66,6 +66,7 @@ Requer autenticação.
     """.strip(),
     responses={
         201: {"description": "Perda registrada"},
+        400: {"description": "Atendimento ativo sem imóvel vinculado"},
         401: {"description": "Não autenticado"},
         404: {"description": "Cliente não encontrado"},
         422: {"description": "Dados inválidos"},
@@ -76,6 +77,15 @@ def create_loss(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> LossResponse:
+    from app.attendances.repository import AttendanceRepository
+
+    attendance_repo = AttendanceRepository(db)
+    active_attendance = attendance_repo.get_active_attendance_by_client(loss_data.client_id)
+    if active_attendance and not active_attendance.property_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Para registrar perda, o atendimento ativo do cliente deve ter um imóvel vinculado. Use a página de detalhes do atendimento e o botão 'Alterar imóvel'.",
+        )
     loss_repo = LossRepository(db)
     loss = loss_repo.create(loss_data)
     return LossResponse(**_enrich_loss_response(loss))

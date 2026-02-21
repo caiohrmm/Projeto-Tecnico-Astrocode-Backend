@@ -69,6 +69,7 @@ Status inicial da venda: PENDING. Requer autenticação.
     """.strip(),
     responses={
         201: {"description": "Venda/aluguel registrado"},
+        400: {"description": "Atendimento ativo sem imóvel vinculado"},
         401: {"description": "Não autenticado"},
         404: {"description": "Cliente ou imóvel não encontrado"},
         422: {"description": "Dados inválidos"},
@@ -79,6 +80,15 @@ def create_sale(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> SaleResponse:
+    from app.attendances.repository import AttendanceRepository
+
+    attendance_repo = AttendanceRepository(db)
+    active_attendance = attendance_repo.get_active_attendance_by_client(sale_data.client_id)
+    if active_attendance and not active_attendance.property_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Para registrar venda, o atendimento ativo do cliente deve ter um imóvel vinculado. Use a página de detalhes do atendimento e o botão 'Alterar imóvel'.",
+        )
     sale_repo = SaleRepository(db)
     sale = sale_repo.create(sale_data)
     return SaleResponse(**_enrich_sale_response(sale))
