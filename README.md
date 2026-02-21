@@ -20,8 +20,10 @@ A **API está totalmente documentada** no Swagger: todos os endpoints possuem de
 ## 📋 Índice
 
 - [1. Visão geral](#1-visão-geral)
+  - [Modelo de uso: sob medida para uma imobiliária (não SaaS)](#modelo-de-uso-sob-medida-para-uma-imobiliária-não-saas)
 - [2. Arquitetura e tecnologias](#2-arquitetura-e-tecnologias)
 - [3. Estrutura do projeto e instalação](#3-estrutura-do-projeto-e-instalação)
+  - [Acesso de teste (usuário gestor)](#acesso-de-teste-usuário-gestor)
   - [Variáveis de ambiente (.env)](#variáveis-de-ambiente-env)
 - [4. Modelos e banco de dados](#4-modelos-e-banco-de-dados)
 - [5. Fluxo central: cliente e ciclos de atendimento](#5-fluxo-central-cliente-e-ciclos-de-atendimento)
@@ -40,6 +42,10 @@ A **API está totalmente documentada** no Swagger: todos os endpoints possuem de
 ## 1. Visão geral
 
 Sistema de **CRM para imobiliárias** com **IA (Google Gemini)** integrada. Toda a jornada do cliente é centralizada no **cliente**: atendimentos (ciclos), visitas, vendas e perdas ficam vinculados a ele e ao **ciclo de atendimento** ativo.
+
+### Modelo de uso: sob medida para uma imobiliária (não SaaS)
+
+Este projeto foi pensado para **uma imobiliária específica**, como sistema **sob medida**. **Não** segue o modelo **SaaS** em que cada “cliente” (empresa) tem sua própria conta, tenant ou instância isolada. Aqui existe **um único banco de dados** compartilhado por todos os usuários da mesma imobiliária: corretores, gestores e atendentes trabalham sobre os mesmos clientes, imóveis, atendimentos e vendas. Os papéis (gestor, atendente) controlam apenas **quem pode fazer o quê** dentro desse ambiente único — por exemplo, só o gestor pode criar usuários e atribuir funções. Resumindo: é um **CRM dedicado a uma única imobiliária**, com um banco só e múltiplos usuários com diferentes permissões.
 
 ### Objetivos do sistema
 
@@ -105,6 +111,17 @@ alembic/                    # Migrações
 6. **Rodar:** `uvicorn app.main:app --reload --port 8000`  
    - **Local:** API → http://localhost:8000 · Docs → http://localhost:8000/docs  
    - **Produção (Render):** API → https://projeto-tecnico-astrocode-backend.onrender.com · Docs → https://projeto-tecnico-astrocode-backend.onrender.com/docs  
+
+### Acesso de teste (usuário gestor)
+
+Para testar o sistema com perfil de **administrador** (gestor) e controlar o acesso dos demais usuários, use as credenciais abaixo no login (frontend ou API):
+
+| Campo    | Valor              |
+|----------|--------------------|
+| **E-mail** | `gestor@example.com` |
+| **Senha**  | `123456`            |
+
+Com esse usuário você pode registrar novos usuários, atribuir roles (atendente, gestor) e gerenciar permissões. Em produção, altere a senha ou use o script `scripts/create_manager.py` para criar um gestor com credenciais seguras.
 
 ### Variáveis de ambiente (.env)
 
